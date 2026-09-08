@@ -92,6 +92,14 @@ export default function Home() {
       if (!newTab) {
         window.location.href = url;
       }
+
+      // ตรวจสอบกรณีผู้ใช้เปิดผ่าน LINE In-App Browser บนมือถือ
+      const isLineApp = /Line/i.test(navigator.userAgent);
+      if (isLineApp) {
+        setTimeout(() => {
+          alert("คำแนะนำสำหรับแอป LINE บนมือถือ:\n\nหากหน้าต่างดูไฟล์ไม่เปิดขึ้นมา (เนื่องจาก LINE มักจะบล็อกการเปิดไฟล์)\n\nกรุณากดไอคอน 'จุด 3 จุด' ที่มุมจอ แล้วเลือก 'เปิดด้วยเบราว์เซอร์อื่น' (Open in Safari / Chrome) ครับ");
+        }, 800);
+      }
     } catch {
       alert("ไม่สามารถเปิดดูไฟล์ได้");
     }
@@ -367,44 +375,55 @@ export default function Home() {
           <div className="space-y-4">
             {employeeData && (
               <div className="mb-4 text-center w-full">
-                <div className="inline-flex flex-col sm:flex-row items-center gap-1 sm:gap-2 px-6 py-3 bg-emerald-50/80 border border-emerald-100 rounded-2xl shadow-sm backdrop-blur-sm">
-                  <span className="text-emerald-800 font-medium whitespace-nowrap">ใบรับรองการจ่ายเงินเดือนของ</span>
-                  <span className="text-emerald-900 font-bold whitespace-nowrap">{employeeData.name}</span>
-                  <span className="text-emerald-800 font-medium whitespace-nowrap hidden sm:inline">ตำแหน่ง</span>
-                  <span className="text-emerald-900 font-bold whitespace-nowrap sm:hidden">ตำแหน่ง {employeeData.position}</span>
-                  <span className="text-emerald-900 font-bold whitespace-nowrap hidden sm:inline">{employeeData.position}</span>
+                <div className="inline-flex flex-wrap items-center justify-center gap-1.5 px-4 sm:px-6 py-2.5 sm:py-3 bg-emerald-50/90 border border-emerald-200/70 rounded-2xl shadow-xs backdrop-blur-sm">
+                  <span className="text-emerald-800 text-xs sm:text-sm font-medium">ใบรับรองการจ่ายเงินเดือนของ</span>
+                  <span className="text-emerald-950 text-sm sm:text-base font-bold">{employeeData.name}</span>
+                  {employeeData.position && (
+                    <span className="text-emerald-700 bg-emerald-100/80 px-2.5 py-0.5 rounded-full text-xs font-semibold ml-1">
+                      ตำแหน่ง {employeeData.position}
+                    </span>
+                  )}
                 </div>
               </div>
             )}
-            <h2 className="text-xl font-semibold mb-4 text-slate-700">ผลการค้นหา ({results.length} รายการ)</h2>
+            <h2 className="text-lg sm:text-xl font-bold mb-3 px-1 text-slate-800">ผลการค้นหา ({results.length} รายการ)</h2>
             {results.length > 0 ? (
               results.map((result, idx) => (
-                <div key={idx} className="glass-panel p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 sm:gap-0 hover:bg-white/60 transition-colors cursor-pointer group">
-                  <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-600 group-hover:scale-110 transition-transform">
+                <div 
+                  key={idx} 
+                  className="glass-panel p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 hover:bg-white/80 transition-all duration-200 shadow-xs hover:shadow-md rounded-2xl border border-slate-200/70"
+                >
+                  <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                    <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-2xl bg-emerald-100/90 flex items-center justify-center text-emerald-600 shrink-0 shadow-inner">
                       <FileText className="w-5 h-5" />
                     </div>
-                    <div>
-                      <p className="font-medium text-slate-800">ใบรับรองการจ่ายเงินเดือน ประจำเดือน {result.month}</p>
-                      <p className="text-sm text-slate-500">พ.ศ. {result.year}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-slate-800 text-sm sm:text-base leading-snug">
+                        ใบรับรองการจ่ายเงินเดือน ประจำเดือน {result.month}
+                      </p>
+                      <p className="text-xs sm:text-sm text-slate-500 mt-0.5 font-medium">
+                        พ.ศ. {result.year}
+                      </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+
+                  <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 pt-2.5 sm:pt-0 border-t sm:border-t-0 border-slate-100/80 justify-end">
                     <button 
                       type="button"
                       onClick={() => handleView(result.pdf_base64)}
-                      className="flex items-center justify-center flex-1 sm:flex-none gap-1.5 text-sm font-medium bg-white hover:bg-slate-50 text-slate-700 hover:text-emerald-700 px-3.5 py-2 rounded-xl transition-colors border border-slate-200 shadow-sm"
-                      title="ดูไฟล์"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs sm:text-sm font-medium bg-white hover:bg-emerald-50/80 text-slate-700 hover:text-emerald-700 px-4 py-2.5 sm:py-2 rounded-xl transition-all border border-slate-200 shadow-xs hover:border-emerald-300 active:scale-[0.98] cursor-pointer"
+                      title="ดูไฟล์เต็มจอในแท็บใหม่"
                     >
-                      <Eye className="w-4 h-4 text-emerald-600" />
+                      <Eye className="w-4 h-4 text-emerald-600 shrink-0" />
                       <span>ดูไฟล์</span>
                     </button>
                     <button 
                       type="button"
                       onClick={() => handleDownload(result.pdf_base64, result.month, result.year)}
-                      className="flex items-center justify-center flex-1 sm:flex-none gap-1.5 text-sm font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3.5 py-2 rounded-xl transition-colors border border-emerald-200 shadow-sm"
+                      className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs sm:text-sm font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 px-4 py-2.5 sm:py-2 rounded-xl transition-all border border-emerald-200 shadow-xs hover:border-emerald-300 active:scale-[0.98] cursor-pointer"
+                      title="ดาวน์โหลดไฟล์ PDF"
                     >
-                      <Download className="w-4 h-4" />
+                      <Download className="w-4 h-4 shrink-0" />
                       <span>ดาวน์โหลด</span>
                     </button>
                   </div>
