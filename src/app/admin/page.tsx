@@ -127,17 +127,22 @@ export default function AdminPage() {
       let pdfjsDoc: any = null;
       let pdfjsLib: any = null;
       try {
-        // Dynamically import pdfjs-dist to avoid SSR crash (DOMMatrix is not defined in Node)
         pdfjsLib = await import('pdfjs-dist');
-        if (pdfjsLib?.version) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+        if (pdfjsLib?.GlobalWorkerOptions) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
         }
         pdfjsDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
       } catch (err) {
         console.warn("Could not parse PDF for text extraction. Falling back to sequential mode.", err);
       }
       
-      // 4. Match PDF pages to accounts and save to Supabase
+      // Clean previous slips for this month and year to prevent duplicates
+      await supabase
+        .from('slips')
+        .delete()
+        .match({ month: selectedMonth, year: selectedYear });
+
+      // 4. Match PDF pages/sections to accounts and save to Supabase
       let startIndex = 0;
       if (accounts.length > 0) {
         const headerRowStr = accounts[0].join(' ');
@@ -149,27 +154,82 @@ export default function AdminPage() {
       let fallbackIndex = 0;
 
       for (let i = 0; i < pages.length; i++) {
-        let matchedRow = null;
-        let extractionMethod = "Sequential";
+        const originalPage = pages[i];
+        const { width, height } = originalPage.getSize();
+        const halfHeight = height / 2;
 
-        // Hybrid Attempt: Try extracting text from the page using pdfjs-dist
+        let pageSections: Array<{
+          account: string | null;
+          name: string | null;
+          crop: [number, number, number, number] | null;
+        }> = [];
+
         if (pdfjsDoc) {
           try {
-            // pdfjs-dist page numbers are 1-indexed
             const page = await pdfjsDoc.getPage(i + 1);
             const textContent = await page.getTextContent();
-            const pageText = textContent.items.map((item: any) => item.str).join(' ');
+            
+            // Check if page contains 2 slips (top half vs bottom half)
+            const topItems: string[] = [];
+            const bottomItems: string[] = [];
 
-            // Find a 10-digit number (allow spaces or hyphens nearby but capture only digits if possible, or just strict 10 digits)
-            // Strict 10-digit number without dashes as confirmed by user
-            const match = pageText.match(/\b\d{10}\b/);
-            if (match && match[0]) {
-              const extractedAccount = match[0];
-              // Search in accounts array (Column index 2 is Bank Account)
-              const found = accounts.find((r: string[]) => r[2] && String(r[2]).trim() === extractedAccount);
-              if (found) {
-                matchedRow = found;
-                extractionMethod = "OCR-Match";
+            for (const item of textContent.items as any[]) {
+              const y = item.transform ? item.transform[5] : 0;
+              if (y >= halfHeight) {
+                topItems.push(item.str);
+              } else {
+                bottomItems.push(item.str);
+              }
+            }
+
+            const topText = topItems.join(' ');
+            const bottomText = bottomItems.join(' ');
+
+            const topAccMatch = topText.match(/\b\d{10}\b/);
+            const bottomAccMatch = bottomText.match(/\b\d{10}\b/);
+
+            const hasTwoSlips = !!(topAccMatch && bottomAccMatch);
+
+            if (hasTwoSlips) {
+              pageSections = [
+                {
+                  account: topAccMatch[0],
+                  name: null,
+                  crop: [0, halfHeight, width, halfHeight]
+                },
+                {
+                  account: bottomAccMatch[0],
+                  name: null,
+                  crop: [0, 0, width, halfHeight]
+                }
+              ];
+            } else if (topAccMatch) {
+              pageSections = [
+                {
+                  account: topAccMatch[0],
+                  name: null,
+                  crop: [0, halfHeight, width, halfHeight]
+                }
+              ];
+            } else if (bottomAccMatch) {
+              pageSections = [
+                {
+                  account: bottomAccMatch[0],
+                  name: null,
+                  crop: [0, 0, width, halfHeight]
+                }
+              ];
+            } else {
+              const fullText = (textContent.items as any[]).map((it: any) => it.str).join(' ');
+              const fullMatch = fullText.match(/\b\d{10}\b/);
+              if (fullMatch) {
+                pageSections = [
+                  {
+                    account: fullMatch[0],
+                    name: null,
+                    crop: null
+                  }
+                ];
               }
             }
           } catch (err) {
@@ -177,35 +237,49 @@ export default function AdminPage() {
           }
         }
 
-        // Fallback: If OCR failed to find a valid account, use sequential index
-        if (!matchedRow) {
-          matchedRow = accounts[startIndex + fallbackIndex];
-          fallbackIndex++;
-          extractionMethod = "Sequential";
+        // Fallback: If no sections detected via OCR, fallback to 1 whole page
+        if (pageSections.length === 0) {
+          pageSections = [{ account: null, name: null, crop: null }];
         }
-        
-        if (!matchedRow) break; // We ran out of accounts in the Google Sheet
-        
-        const name = matchedRow[0];
-        const bankAccount = String(matchedRow[2]).trim();
-        if (!bankAccount) continue;
-        
-        const newPdf = await PDFDocument.create();
-        const [copiedPage] = await newPdf.copyPages(pdfDoc, [i]);
-        newPdf.addPage(copiedPage);
-        const newPdfBase64 = await newPdf.saveAsBase64({ dataUri: false });
-        
-        // Save slip to Supabase
-        await supabase.from('slips').insert({
-          name: name,
-          bank_account: bankAccount,
-          month: selectedMonth,
-          year: selectedYear,
-          pdf_base64: newPdfBase64
-        });
-        
-        // Throttle slightly just in case
-        await new Promise(resolve => setTimeout(resolve, 50));
+
+        for (const sec of pageSections) {
+          let matchedRow = null;
+
+          if (sec.account) {
+            matchedRow = accounts.find((r: string[]) => r[2] && String(r[2]).trim() === sec.account);
+          }
+
+          if (!matchedRow) {
+            matchedRow = accounts[startIndex + fallbackIndex];
+            fallbackIndex++;
+          }
+
+          if (!matchedRow && !sec.account) continue;
+
+          const name = matchedRow ? matchedRow[0] : (sec.name || "เจ้าหน้าที่");
+          const bankAccount = sec.account || (matchedRow ? String(matchedRow[2]).trim() : "");
+          if (!bankAccount) continue;
+
+          const newPdf = await PDFDocument.create();
+          const [copiedPage] = await newPdf.copyPages(pdfDoc, [i]);
+          if (sec.crop) {
+            copiedPage.setCropBox(sec.crop[0], sec.crop[1], sec.crop[2], sec.crop[3]);
+            copiedPage.setMediaBox(sec.crop[0], sec.crop[1], sec.crop[2], sec.crop[3]);
+          }
+          newPdf.addPage(copiedPage);
+          const newPdfBase64 = await newPdf.saveAsBase64({ dataUri: false });
+
+          // Save slip to Supabase
+          await supabase.from('slips').insert({
+            name: name,
+            bank_account: bankAccount,
+            month: selectedMonth,
+            year: selectedYear,
+            pdf_base64: newPdfBase64
+          });
+
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
       }
 
       // 4. Upload the combined 8MB PDF to Supabase Storage (Using safe filename without Thai characters)
