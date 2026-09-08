@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, Download, FileText, AlertCircle, Settings, X, Lock, Eye, EyeOff } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Search, Download, FileText, AlertCircle, Settings, X, Lock, Eye, EyeOff, ExternalLink } from "lucide-react";
 import { useRouter } from "next/navigation";
 // @ts-ignore
 import Papa from "papaparse";
@@ -34,11 +34,15 @@ export default function Home() {
   const [adminError, setAdminError] = useState("");
   const [isCheckingAuth, setIsCheckingAuth] = useState(false);
 
-  useEffect(() => {
-    fetchAvailablePeriods();
-  }, []);
+  const [previewModal, setPreviewModal] = useState<{
+    isOpen: boolean;
+    url: string;
+    month: string;
+    year: string;
+    pdfBase64: string;
+  } | null>(null);
 
-  const fetchAvailablePeriods = async () => {
+  const fetchAvailablePeriods = useCallback(async () => {
     try {
       const { data, error } = await supabase.from('upload_history').select('month, year');
       
@@ -74,6 +78,40 @@ export default function Home() {
     } catch (err: any) {
       alert(`Error: ${err.message}`);
     }
+  }, []);
+
+  useEffect(() => {
+    fetchAvailablePeriods();
+  }, [fetchAvailablePeriods]);
+
+  const handleView = (pdfBase64: string, month: string, year: string) => {
+    try {
+      const byteCharacters = atob(pdfBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+
+      setPreviewModal({
+        isOpen: true,
+        url: url,
+        month: month,
+        year: year,
+        pdfBase64: pdfBase64,
+      });
+    } catch {
+      alert("ไม่สามารถเปิดดูไฟล์ได้");
+    }
+  };
+
+  const closePreviewModal = () => {
+    if (previewModal?.url) {
+      URL.revokeObjectURL(previewModal.url);
+    }
+    setPreviewModal(null);
   };
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -368,13 +406,25 @@ export default function Home() {
                       <p className="text-sm text-slate-500">พ.ศ. {result.year}</p>
                     </div>
                   </div>
-                  <button 
-                    onClick={() => handleDownload(result.pdf_base64, result.month, result.year)}
-                    className="flex items-center justify-center w-full sm:w-auto gap-2 text-sm font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-4 py-2 rounded-xl transition-colors border border-emerald-200"
-                  >
-                    <Download className="w-4 h-4" />
-                    ดาวน์โหลด
-                  </button>
+                  <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                    <button 
+                      type="button"
+                      onClick={() => handleView(result.pdf_base64, result.month, result.year)}
+                      className="flex items-center justify-center flex-1 sm:flex-none gap-1.5 text-sm font-medium bg-white hover:bg-slate-50 text-slate-700 hover:text-emerald-700 px-3.5 py-2 rounded-xl transition-colors border border-slate-200 shadow-sm"
+                      title="ดูไฟล์"
+                    >
+                      <Eye className="w-4 h-4 text-emerald-600" />
+                      <span>ดูไฟล์</span>
+                    </button>
+                    <button 
+                      type="button"
+                      onClick={() => handleDownload(result.pdf_base64, result.month, result.year)}
+                      className="flex items-center justify-center flex-1 sm:flex-none gap-1.5 text-sm font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3.5 py-2 rounded-xl transition-colors border border-emerald-200 shadow-sm"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>ดาวน์โหลด</span>
+                    </button>
+                  </div>
                 </div>
               ))
             ) : (
@@ -434,6 +484,73 @@ export default function Home() {
                 {isCheckingAuth ? <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> : 'เข้าสู่ระบบ'}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* PDF Preview Modal */}
+      {previewModal?.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 md:p-6">
+          <div 
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+            onClick={closePreviewModal}
+          />
+          <div className="glass-panel w-full max-w-4xl max-h-[92vh] flex flex-col relative z-10 bg-white shadow-2xl rounded-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50/80">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center text-emerald-700 shrink-0">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-sm sm:text-base leading-tight">
+                    ใบรับรองการจ่ายเงินเดือน ประจำเดือน {previewModal.month} {previewModal.year}
+                  </h3>
+                  {employeeData && (
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {employeeData.name} {employeeData.position ? `(${employeeData.position})` : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <a
+                  href={previewModal.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-slate-600 hover:text-emerald-700 bg-white hover:bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 transition-colors"
+                  title="เปิดในแท็บใหม่"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>เปิดแท็บใหม่</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => handleDownload(previewModal.pdfBase64, previewModal.month, previewModal.year)}
+                  className="flex items-center gap-1.5 text-xs font-medium bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg transition-colors shadow-sm"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>ดาวน์โหลด</span>
+                </button>
+                <button 
+                  type="button"
+                  onClick={closePreviewModal}
+                  className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-200 rounded-lg transition-colors ml-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: PDF Preview */}
+            <div className="flex-1 w-full p-2 md:p-4 bg-slate-100 overflow-hidden flex flex-col">
+              <iframe
+                src={`${previewModal.url}#toolbar=0`}
+                className="w-full h-[65vh] md:h-[72vh] rounded-xl border border-slate-200 bg-white shadow-inner"
+                title={`สลิปเงินเดือน ${previewModal.month} ${previewModal.year}`}
+              />
+            </div>
           </div>
         </div>
       )}
