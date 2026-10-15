@@ -2,7 +2,8 @@
 import { createServer } from "node:http";
 
 let current = { rows: [], history: [] };
-export function setMockState(next) { current = next; }
+let rateBuckets = new Map();
+export function setMockState(next) { current = next; rateBuckets = new Map(); }
 
 function filterRows(values, params) {
   let rows = values.slice();
@@ -28,10 +29,30 @@ export async function startMockSupabase() {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const table = url.pathname === "/rest/v1/slips" ? "rows" :
       url.pathname === "/rest/v1/upload_history" ? "history" : null;
-    if (!table) { res.writeHead(404); res.end("{}"); return; }
+    if (!table && url.pathname !== "/rest/v1/rpc/check_payroll_rate_limit") {
+      res.writeHead(404); res.end("{}"); return;
+    }
     let payload = "";
     for await (const chunk of req) payload += chunk.toString();
     const headers = { "Content-Type": "application/json; charset=utf-8", "Content-Range": "*/*" };
+    if (url.pathname === "/rest/v1/rpc/check_payroll_rate_limit") {
+      try {
+        if (req.method !== "POST") { res.writeHead(405, headers); res.end("{}"); return; }
+        const { p_key_hash, p_window_seconds, p_max_requests } = JSON.parse(payload);
+        if (!/^[a-f0-9]{64}$/.test(p_key_hash) || p_window_seconds !== 600 ||
+            !Number.isInteger(p_max_requests) || p_max_requests < 1) {
+          res.writeHead(400, headers); res.end("false"); return;
+        }
+        const bucket = Math.floor(Date.now() / (p_window_seconds * 1000));
+        const id = p_key_hash + ":" + bucket;
+        const count = (rateBuckets.get(id) || 0) + 1;
+        rateBuckets.set(id, count);
+        res.writeHead(200, headers); res.end(JSON.stringify(count <= p_max_requests));
+      } catch {
+        res.writeHead(500, headers); res.end("{}");
+      }
+      return;
+    }
     let code = 200, result = [];
     try {
       if (req.method === "GET") {
