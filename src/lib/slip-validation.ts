@@ -86,8 +86,12 @@ export function identifyPageSlips(
     if (topPeople[0].bankAccount === bottomPeople[0].bankAccount) {
       throw new SlipValidationError("เลขบัญชีซ้ำในสองส่วนของหน้าเดียวกัน");
     }
-    if (!matchesName(top, topPeople[0].name) || !matchesName(bottom, bottomPeople[0].name)) {
-      throw new SlipValidationError("ชื่อใน PDF ไม่ตรงกับทะเบียนบุคลากร");
+    const topNames = roster.filter((entry) => matchesName(top, entry.name));
+    const bottomNames = roster.filter((entry) => matchesName(bottom, entry.name));
+    if (topNames.length !== 1 || bottomNames.length !== 1 ||
+        topNames[0].bankAccount !== topPeople[0].bankAccount ||
+        bottomNames[0].bankAccount !== bottomPeople[0].bankAccount) {
+      throw new SlipValidationError("ชื่อในแต่ละสลิปไม่ตรงหรือพบชื่อบุคลากรหลายคน");
     }
     return [{ person: topPeople[0], region: "top" },
             { person: bottomPeople[0], region: "bottom" }];
@@ -99,8 +103,10 @@ export function identifyPageSlips(
   if (allPeople.length !== 1) {
     throw new SlipValidationError("ไม่สามารถระบุเลขบัญชีเจ้าของสลิปได้อย่างแน่นอน");
   }
-  if (!matchesName(tokens, allPeople[0].name)) {
-    throw new SlipValidationError("ชื่อใน PDF ไม่ตรงกับทะเบียนบุคลากร");
+  const namesOnPage = roster.filter((entry) => matchesName(tokens, entry.name));
+  if (namesOnPage.length !== 1 ||
+      namesOnPage[0].bankAccount !== allPeople[0].bankAccount) {
+    throw new SlipValidationError("พบชื่อบุคลากรอื่นหรือชื่อไม่ตรงเลขบัญชี ห้ามส่ง PDF ทั้งหน้า");
   }
   // A missing second account with a second name/header is ambiguous: never give away a full page.
   if ((topHeading && bottom.length > 5 && bottomPeople.length === 0 &&
