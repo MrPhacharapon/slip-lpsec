@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { payrollDb } from "@/lib/server/payroll-db";
+import { lookupStaffDirectory } from "@/lib/server/staff-directory";
 import { reply, requireSameOrigin, validAccount } from "@/lib/server/route-guards";
 export const dynamic = "force-dynamic";
 
@@ -18,8 +19,11 @@ export async function POST(req: NextRequest) {
     const published = new Set((history.data ?? []).map(x => x.year + ":" + x.month));
     const matches = (slips.data ?? []).filter(x => published.has(x.year + ":" + x.month));
     // Return metadata only; PDFs are fetched one at a time on deliberate click.
-    return reply({ results: matches, employee: matches.length ?
-      { name: matches[0].name, position: "" } : null });
+    // Retrieve only the matching person's name/position from the roster.
+    const employee = matches.length
+      ? (await lookupStaffDirectory(input.bankAccount)) ?? { name: matches[0].name, position: "" }
+      : null;
+    return reply({ results: matches, employee });
   } catch {
     return reply({ error: "ค้นหาสลิปไม่สำเร็จ" }, 503);
   }
