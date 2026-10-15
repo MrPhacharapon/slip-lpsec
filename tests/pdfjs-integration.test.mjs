@@ -26,9 +26,10 @@ const roster = parseRoster([
 ]);
 
 async function extractTokens(bytes) {
-  const document = await pdfjs.getDocument({
+  const loadingTask = pdfjs.getDocument({
     data: new Uint8Array(bytes), useSystemFonts: true,
-  }).promise;
+  });
+  const document = await loadingTask.promise;
   try {
     const page = await document.getPage(1);
     const items = (await page.getTextContent()).items;
@@ -38,7 +39,7 @@ async function extractTokens(bytes) {
         .map(i => ({ str: i.str, y: i.transform[5] })),
     };
   } finally {
-    await document.destroy();
+    await loadingTask.destroy();
   }
 }
 
