@@ -342,15 +342,21 @@ async function main() {
       const context = await makeSandboxContext(browser, state);
       const visitor = await browser.newContext();
       try {
+        const admin = await context.newPage();
+        await admin.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await admin.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
         const pdf = await printablePdf(browser, "A", [persons[0]]);
         const month = "พฤศจิกายน", year = "2569";
-        const staged = await context.request.post(base + "/api/admin/slips", {
-          headers: { Origin: base }, data: { rows: [{
-            name: persons[0].name, bank_account: persons[0].account,
-            month, year, pdf_base64: pdf.toString("base64"),
-          }] },
-        });
-        assert.equal(staged.status(), 200);
+        const stageRow = { name: persons[0].name, bank_account: persons[0].account,
+          month, year, pdf_base64: pdf.toString("base64") };
+        const stageResult = await admin.evaluate(async row => {
+          const response = await fetch("/api/admin/slips", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rows: [row] }),
+          });
+          return { status: response.status, text: await response.text() };
+        }, stageRow);
+        assert.equal(stageResult.status, 200, stageResult.text);
         assert.equal(state.rows.length, 1);
         assert.equal(state.history.length, 0);
         const lookup = await visitor.request.post(base + "/api/payroll/search", {
@@ -364,11 +370,14 @@ async function main() {
           data: { bankAccount: persons[0].account, month, year },
         });
         assert.equal(hiddenPdf.status(), 404);
-        const finalized = await context.request.post(base + "/api/admin/finalize", {
-          headers: { Origin: base },
-          data: { month, year, fileName: "fictional-payroll.pdf", expectedCount: 1 },
-        });
-        assert.equal(finalized.status(), 200);
+        const finalizeResult = await admin.evaluate(async ({ month, year }) => {
+          const response = await fetch("/api/admin/finalize", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month, year, fileName: "fictional-payroll.pdf", expectedCount: 1 }),
+          });
+          return { status: response.status, text: await response.text() };
+        }, { month, year });
+        assert.equal(finalizeResult.status, 200, finalizeResult.text);
         const visible = await visitor.request.post(base + "/api/payroll/search", {
           headers: { Origin: base }, data: { bankAccount: persons[0].account },
         });
