@@ -1,10 +1,20 @@
-import { NextResponse } from 'next/server';
+import { NextResponse } from "next/server";
+import { verifyLineWebhookSignature } from "@/lib/server/line-signature";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    
-    if (!body.events || body.events.length === 0) {
+    // LINE signs the exact raw body. Parsing before verification would break
+    // the HMAC and could allow unauthenticated callers to impersonate LINE.
+    const rawBody = await req.text();
+    if (!verifyLineWebhookSignature(rawBody, req.headers.get("x-line-signature"))) {
+      return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });
+    }
+    const body = JSON.parse(rawBody);
+    if (!body || !Array.isArray(body.events)) {
+      return NextResponse.json({ error: "Invalid webhook body" }, { status: 400 });
+    }
+
+    if (body.events.length === 0) {
       return NextResponse.json({ status: 'ok' });
     }
 
