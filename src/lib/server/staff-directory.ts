@@ -5,8 +5,10 @@ import Papa from "papaparse";
 
 export async function lookupStaffDirectory(account: string):
   Promise<{ name: string; position: string } | null> {
-  const sheetId = process.env.STAFF_SHEET_ID ||
-    "1warnAj4x4d7lZecJ3vApaGltSxx1Ji_wv2CkOhcF0nI";
+  // Prevent isolated environments from reading the production staff roster.
+  if (process.env.STAFF_DIRECTORY_DISABLED === "true") return null;
+  const sheetId = process.env.STAFF_SHEET_ID;
+  if (!sheetId) return null;
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(sheetId)) return null;
   try {
     const url = "https://docs.google.com/spreadsheets/d/" + sheetId + "/export?format=csv&gid=0";
