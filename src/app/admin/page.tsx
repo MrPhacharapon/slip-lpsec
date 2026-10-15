@@ -7,7 +7,6 @@ import { PDFDocument } from 'pdf-lib';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 // @ts-ignore
 import Papa from 'papaparse';
-import { supabase } from '@/lib/supabase';
 import { parseRoster, identifyPageSlips, assertUniquePeriod, validateSlipPageLayout } from "@/lib/slip-validation";
 import { ensurePdfJsMapCompatibility } from "@/lib/pdfjs-compat";
 import type { PdfToken, RosterPerson, PageRegion } from "@/lib/slip-validation";
@@ -44,25 +43,23 @@ export default function AdminPage() {
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
-    const auth = sessionStorage.getItem("adminAuth");
-    if (auth !== "true") {
-      router.push("/");
-    } else {
-      setIsMounted(true);
-      setIsAuthenticated(true);
-      fetchHistory();
-    }
+    let active = true;
+    fetch("/api/auth", { cache: "no-store" })
+      .then(r => r.json())
+      .then(v => {
+        if (!active) return;
+        if (!v.authenticated) { setIsAuthenticated(false); router.push("/"); return; }
+        setIsMounted(true); setIsAuthenticated(true);
+        void fetchHistory();
+      }).catch(() => { if (active) { setIsAuthenticated(false); router.push("/"); } });
+    return () => { active = false; };
   }, [router]);
 
   const fetchHistory = async () => {
-    const { data, error } = await supabase
-      .from('upload_history')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (data && !error) {
-      setHistoryItems(data);
-    }
+    const response = await fetch("/api/admin/history", { cache: "no-store" });
+    if (!response.ok) throw new Error("โหลดประวัติไม่สำเร็จ");
+    const { history } = await response.json();
+    setHistoryItems(history);
   };
 
   const handleDragEnd = (result: any) => {
@@ -79,13 +76,11 @@ export default function AdminPage() {
     newItems.splice(endIndex, 0, removed);
     setHistoryItems(newItems);
 
-    // 2. Update Supabase to permanently save the new order
-    // By resetting created_at, we maintain the "ORDER BY created_at DESC" sorting
-    const now = Date.now();
-    Promise.all(newItems.map((item, i) => {
-      const newTime = new Date(now - i * 1000).toISOString();
-      return supabase.from('upload_history').update({ created_at: newTime }).match({ id: item.id });
-    })).catch(err => console.error("Reorder DB error:", err));
+    fetch("/api/admin/history", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: newItems.map(item => item.id) }),
+    }).then(r => { if (!r.ok) throw new Error("ไม่สามารถจัดเรียงได้"); })
+      .catch(() => { void fetchHistory().catch(() => alert("โหลดประวัติไม่สำเร็จ")); });
   };
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -115,10 +110,13 @@ export default function AdminPage() {
       if (!doc.numPages || doc.numPages > 500) throw new Error("จำนวนหน้า PDF ไม่ถูกต้องหรือมากเกินกำหนด");
 
       // Read-only preflight: never delete old payroll records to replace a month.
-      const { data: existing, error: existingError } = await supabase.from("slips")
-        .select("id").eq("month", selectedMonth).eq("year", selectedYear).limit(1);
-      if (existingError) throw new Error("ไม่สามารถตรวจรายการเดิมได้");
-      if (existing?.length) throw new Error("เดือนนี้มีข้อมูลอยู่แล้ว: ไม่อนุญาตให้เขียนทับ โปรดใช้กระบวนการทบทวนชุดข้อมูล");
+      const preflight = await fetch("/api/admin/preflight", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: selectedMonth, year: selectedYear }),
+      });
+      if (!preflight.ok) throw new Error("ไม่สามารถตรวจรายการเดิมได้");
+      if (!(await preflight.json()).clear)
+        throw new Error("เดือนนี้มีข้อมูลอยู่แล้ว: ไม่อนุญาตให้เขียนทับ โปรดใช้กระบวนการทบทวนชุดข้อมูล");
 
       type Candidate = { pageIndex: number; person: RosterPerson; region: PageRegion };
       const mapped: Candidate[] = [];
@@ -210,16 +208,37 @@ export default function AdminPage() {
       if (!window.confirm("ตรวจสอบผ่าน " + rows.length + " รายการจาก " + doc.numPages +
           " หน้า\nบันทึกเฉพาะเดือนใหม่ (ไม่เขียนทับรายการเดิม) หรือไม่?")) return;
 
-      // Single batch request, do not delete previously published records.
-      const { error: uploadError } = await supabase.from("slips").insert(rows);
-      if (uploadError) throw new Error("บันทึกสลิปไม่สำเร็จ: " + uploadError.message);
-      // Do not upload the consolidated PDF to the currently PUBLIC Storage bucket.
-      const { error: historyError } = await supabase.from("upload_history").insert({
-        month: selectedMonth, year: selectedYear, file_name: file.name, storage_path: null
-      });
-      if (historyError) {
-        throw new Error("บันทึกสลิปแล้ว แต่ประวัติไม่สมบูรณ์ กรุณาติดต่อผู้ดูแลและห้ามกดอัปโหลดซ้ำ");
+      // Stage small batches through an authenticated server route. Until
+      // finalize inserts upload_history, staff searches cannot see the period.
+      let pending: typeof rows = [];
+      const flush = async () => {
+        if (!pending.length) return;
+        const response = await fetch("/api/admin/slips", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: pending }), cache: "no-store",
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          throw new Error(data.error || "บันทึกสลิปบางส่วนไม่สำเร็จ กรุณาติดต่อผู้ดูแล ห้ามอัปโหลดซ้ำ");
+        }
+        pending = [];
+      };
+      for (const row of rows) {
+        if (pending.length && JSON.stringify({ rows: [...pending, row] }).length > 1_500_000)
+          await flush();
+        if (JSON.stringify({ rows: [row] }).length > 1_500_000)
+          throw new Error("ไฟล์สลิปรายบุคคลใหญ่เกินกำหนด");
+        pending.push(row);
+        if (pending.length >= 8) await flush();
       }
+      await flush();
+      const finished = await fetch("/api/admin/finalize", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: selectedMonth, year: selectedYear,
+          fileName: file.name, expectedCount: rows.length }), cache: "no-store",
+      });
+      if (!finished.ok)
+        throw new Error("บันทึกไฟล์แล้ว แต่ยังไม่เผยแพร่ โปรดตรวจสอบสถานะข้อมูลก่อนดำเนินการต่อ");
       setUploadSuccess(true);
       await fetchHistory();
       setFile(null);
@@ -232,39 +251,22 @@ export default function AdminPage() {
   };
 
   const handleDelete = async (id: string, storagePath: string, month: string, year: string) => {
-    if(confirm(`คุณต้องการลบข้อมูลสลิปเดือน ${month} ${year} ใช่หรือไม่? (ข้อมูลสลิปย่อยจะถูกลบทั้งหมด)`)) {
-      // 1. Delete original file from Storage
-      if (storagePath) {
-        await supabase.storage.from('slips').remove([storagePath]);
-      }
-      
-      // 2. Delete all slips for this month/year
-      await supabase
-        .from('slips')
-        .delete()
-        .match({ month: month, year: year });
-
-      // 3. Delete history item
-      await supabase
-        .from('upload_history')
-        .delete()
-        .match({ id: id });
-
-      // Update UI
-      setHistoryItems(historyItems.filter(item => item.id !== id));
-    }
+    if (!confirm(`คุณต้องการลบข้อมูลสลิปเดือน ${month} ${year} ใช่หรือไม่? (ข้อมูลสลิปย่อยจะถูกลบทั้งหมด)`)) return;
+    const response = await fetch("/api/admin/history", {
+      method: "DELETE", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, month, year }), cache: "no-store",
+    });
+    if (!response.ok) { alert((await response.json()).error || "ลบข้อมูลไม่สำเร็จ"); return; }
+    setHistoryItems(historyItems.filter(item => item.id !== id));
   };
 
   const handleViewFile = (storagePath: string) => {
-    if (!storagePath) {
-      alert("ไม่มีไฟล์บันทึกไว้ในระบบ");
-      return;
-    }
-    const { data } = supabase.storage.from('slips').getPublicUrl(storagePath);
-    window.open(data.publicUrl, '_blank');
+    if (!storagePath) { alert("ไม่มีไฟล์บันทึกไว้ในระบบ"); return; }
+    window.open("/api/admin/storage?path=" + encodeURIComponent(storagePath), "_blank");
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await fetch("/api/auth", { method: "DELETE" }).catch(() => {});
     sessionStorage.removeItem("adminAuth");
     router.push("/");
   };
