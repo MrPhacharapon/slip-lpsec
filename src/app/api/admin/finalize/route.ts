@@ -11,20 +11,16 @@ export async function POST(req: NextRequest) {
         typeof fileName !== "string" || !fileName.toLowerCase().endsWith(".pdf") ||
         fileName.length > 200 || !Number.isInteger(expectedCount) ||
         expectedCount < 1 || expectedCount > 500) return reply({ error: "ข้อมูลไม่ถูกต้อง" }, 400);
-    const db = payrollDb();
-    const [existing, inserted] = await Promise.all([
-      db.from("upload_history").select("id").eq("month", month).eq("year", year).limit(1),
-      db.from("slips").select("bank_account").eq("month", month).eq("year", year).limit(501),
-    ]);
-    if (existing.error || inserted.error) throw new Error("finalize verification failed");
-    if (existing.data?.length) return reply({ error: "มีประวัติอัปโหลดเดือนนี้แล้ว" }, 409);
-    if (inserted.data?.length !== expectedCount ||
-        new Set(inserted.data.map(x => x.bank_account)).size !== expectedCount)
-      return reply({ error: "จำนวนสลิปไม่ครบหรือมีบัญชีซ้ำ ห้ามเผยแพร่" }, 409);
-    const { error } = await db.from("upload_history").insert({
-      month, year, file_name: fileName, storage_path: null,
+    // Count, ownership uniqueness and publication are checked inside one
+    // database transaction. Staging requests for the same period use the same
+    // transaction-scoped advisory lock; no publish/stage race is possible.
+    const { data, error } = await payrollDb().rpc("publish_payroll_period", {
+      p_month: month, p_year: year, p_file_name: fileName,
+      p_expected_count: expectedCount,
     });
-    if (error) throw error;
+    if (error?.code === "23505") return reply({ error: "เดือนนี้เผยแพร่แล้ว ห้ามบันทึกซ้ำ" }, 409);
+    if (error?.code === "22023") return reply({ error: "จำนวนสลิปยังไม่ครบหรือข้อมูลไม่ถูกต้อง ห้ามเผยแพร่" }, 409);
+    if (error || data !== true) return reply({ error: "ไม่สามารถยืนยันการเผยแพร่ กรุณาตรวจสถานะก่อนดำเนินการต่อ" }, 503);
     return reply({ success: true });
   } catch { return reply({ error: "บันทึกประวัติไม่สำเร็จ ต้องตรวจสอบก่อนอัปโหลดซ้ำ" }, 503); }
 }
