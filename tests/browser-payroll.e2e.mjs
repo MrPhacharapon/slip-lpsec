@@ -336,6 +336,8 @@ async function main() {
         const pdf = await printablePdf(browser, "A", [persons[0]]);
         const {page,messages} = await submitOnAdmin(context, pdf, "มกราคม");
         await until(() => messages.length > 0, "existing period alert");
+        assert.ok(messages.some(message => message.includes("อัปโหลดค้าง 1 รายการ")),
+          "unpublished staged rows must be identified separately before any retry");
         assert.equal(state.rows.length, 1);
         assert.equal(state.rows[0].pdf_base64, "not-mutated");
         assert.equal(state.history.length, 0);
@@ -344,6 +346,27 @@ async function main() {
       } finally { await context.close(); }
     }
 
+
+    // Published month must never be rewritten, even if an admin submits the same file.
+    {
+      const original = { id: "already-published", month: "มกราคม", year: "2569",
+        bank_account: persons[0].account, pdf_base64: "existing-file" };
+      const state = { rows: [original], history: [{
+        id: "published-uuid", month: "มกราคม", year: "2569",
+        file_name: "old-payroll.pdf", storage_path: null, created_at: new Date().toISOString(),
+      }] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const { page, messages } = await submitOnAdmin(context, pdf, "มกราคม");
+        await until(() => messages.length > 0, "published period warning");
+        assert.ok(messages.some(message => message.includes("เผยแพร่แล้ว")),
+          "already-published month must show a different warning from staged rows");
+        assert.equal(state.rows[0].pdf_base64, "existing-file");
+        assert.equal(state.history.length, 1);
+        await page.close();
+      } finally { await context.close(); }
+    }
 
     // A partly staged period must remain invisible until finalization.
     {
