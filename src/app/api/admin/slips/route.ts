@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { payrollDb } from "@/lib/server/payroll-db";
+import { validateStoredSlipPdf } from "@/lib/server/slip-pdf-validation";
 import { reply, requireAdmin, validAccount, validPeriod } from "@/lib/server/route-guards";
 export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
@@ -18,10 +19,8 @@ export async function POST(req: NextRequest) {
       if (row.month !== first.month || row.year !== first.year ||
         typeof row.name !== "string" || !row.name.trim() || row.name.length > 200 ||
         !validAccount(row.bank_account) || seen.has(row.bank_account) ||
-        typeof row.pdf_base64 !== "string" || row.pdf_base64.length < 100 ||
-        row.pdf_base64.length > 1_500_000 ||
-        Buffer.from(row.pdf_base64.slice(0, 16), "base64").subarray(0, 5).toString() !== "%PDF-") {
-        return reply({ error: "ข้อมูลสลิปไม่ถูกต้องหรือซ้ำ" }, 400);
+        !(await validateStoredSlipPdf(row.pdf_base64)).valid) {
+        return reply({ error: "ข้อมูลสลิปไม่ถูกต้องหรือซ้ำ หรือ PDF ไม่ใช่สลิปหน้าเดียว", }, 400);
       }
       seen.add(row.bank_account);
     }
