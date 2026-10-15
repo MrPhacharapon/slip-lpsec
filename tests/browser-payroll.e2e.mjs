@@ -155,7 +155,11 @@ async function submitOnAdmin(context, pdf, month = "กันยายน") {
   const page = await context.newPage();
   const messages = [];
   page.on("dialog", async dialog => {
-    if (dialog.type() === "alert") messages.push(dialog.message());
+    if (dialog.type() === "alert") {
+      messages.push(dialog.message());
+      // Synthetic test inputs only; safe to surface validation errors in CI.
+      console.error("Sandbox upload alert:", dialog.message());
+    }
     await dialog.accept();
   });
   const errors = [];
@@ -168,6 +172,17 @@ async function submitOnAdmin(context, pdf, month = "กันยายน") {
   });
   await page.getByRole("button", { name: "อัพโหลดไฟล์" }).click();
   return { page, messages, errors };
+}
+
+async function awaitUploadSuccess(page, messages, errors) {
+  try {
+    await page.getByText("อัปโหลดสำเร็จ!").waitFor({ timeout: 25000 });
+  } catch (error) {
+    const visible = (await page.locator("body").innerText()).slice(-500);
+    throw new Error("Expected upload success, alerts=" + JSON.stringify(messages) +
+      ", client errors=" + JSON.stringify(errors) + ", screen=" + visible +
+      "; underlying error=" + String(error));
+  }
 }
 
 async function checkStoredImageOnlyPDF(row, expectedHeight) {
@@ -207,8 +222,8 @@ async function main() {
       const context = await makeSandboxContext(browser, state);
       try {
         const pdf = await printablePdf(browser, "A", [persons[0]]);
-        const {page,errors} = await submitOnAdmin(context, pdf, "มกราคม");
-        await page.getByText("อัปโหลดสำเร็จ!").waitFor({ timeout: 45000 });
+        const {page,errors,messages} = await submitOnAdmin(context, pdf, "มกราคม");
+        await awaitUploadSuccess(page, messages, errors);
         assert.deepEqual(errors, []);
         assert.equal(state.rows.length, 1);
         assert.equal(state.rows[0].bank_account, persons[0].account);
@@ -225,8 +240,8 @@ async function main() {
       const context = await makeSandboxContext(browser, state);
       try {
         const pdf = await printablePdf(browser, "B", persons.slice(0, 2));
-        const {page,errors} = await submitOnAdmin(context, pdf);
-        await page.getByText("อัปโหลดสำเร็จ!").waitFor({ timeout: 45000 });
+        const {page,errors,messages} = await submitOnAdmin(context, pdf);
+        await awaitUploadSuccess(page, messages, errors);
         assert.deepEqual(errors, []);
         assert.equal(state.rows.length, 2);
         assert.deepEqual(state.rows.map(x => x.bank_account), persons.slice(0, 2).map(x => x.account));
@@ -244,8 +259,8 @@ async function main() {
       const context = await makeSandboxContext(browser, state);
       try {
         const pdf = await printablePdf(browser, "B", persons);
-        const {page,errors} = await submitOnAdmin(context, pdf);
-        await page.getByText("อัปโหลดสำเร็จ!").waitFor({ timeout: 45000 });
+        const {page,errors,messages} = await submitOnAdmin(context, pdf);
+        await awaitUploadSuccess(page, messages, errors);
         assert.deepEqual(errors, []);
         assert.equal(state.rows.length, 3);
         for (let i = 0; i < 3; i++)
