@@ -227,6 +227,35 @@ async function main() {
     } finally { await visitor.close(); }
 
 
+    // The admin API must reject forged/malformed PDF payloads even when
+    // submitted directly, bypassing PDF.js validation in the browser.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      const admin = await context.newPage();
+      try {
+        await admin.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await admin.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
+        const pdfDocument = await PDFDocument.create();
+        pdfDocument.addPage([1071, 792]);
+        pdfDocument.addPage([1071, 792]);
+        const twoPagePdf = Buffer.from(await pdfDocument.save()).toString("base64");
+        const result = await admin.evaluate(async ({twoPagePdf, person}) => {
+          const response = await fetch("/api/admin/slips", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ rows: [{
+              name: person.name, bank_account: person.account,
+              month: "ตุลาคม", year: "2569", pdf_base64: twoPagePdf,
+            }] }),
+          });
+          return response.status;
+        }, { twoPagePdf, person: persons[0] });
+        assert.equal(result, 400, "direct admin API rejects an unsplit two-page PDF");
+        assert.equal(state.rows.length, 0, "invalid document must never be stored");
+        console.log("PASS server-side PDF structural validation: direct multi-page submission refused.");
+      } finally { await context.close(); }
+    }
+
     // A: traditional single slip, upload + retrieval.
     {
       const state = { rows: [], history: [] };
