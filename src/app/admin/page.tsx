@@ -115,8 +115,18 @@ export default function AdminPage() {
         body: JSON.stringify({ month: selectedMonth, year: selectedYear }),
       });
       if (!preflight.ok) throw new Error("ไม่สามารถตรวจรายการเดิมได้");
-      if (!(await preflight.json()).clear)
-        throw new Error("เดือนนี้มีข้อมูลอยู่แล้ว: ไม่อนุญาตให้เขียนทับ โปรดใช้กระบวนการทบทวนชุดข้อมูล");
+      const priorState = await preflight.json() as {
+        clear: boolean; published: boolean; stagedCount: number; truncated?: boolean;
+      };
+      if (!priorState.clear) {
+        if (priorState.published)
+          throw new Error("เดือนนี้เผยแพร่แล้ว: ไม่อนุญาตให้อัปโหลดซ้ำหรือเขียนทับข้อมูล");
+        if (priorState.stagedCount > 0)
+          throw new Error("พบสลิปที่อัปโหลดค้าง " +
+            (priorState.truncated ? "มากกว่า 500" : String(priorState.stagedCount)) +
+            " รายการ แต่ยังไม่ได้เผยแพร่ กรุณาให้ผู้ดูแลตรวจสอบและคืนสภาพก่อนอัปโหลดซ้ำ ห้ามลบหรือเขียนทับโดยอัตโนมัติ");
+        throw new Error("เดือนนี้มีข้อมูลผิดปกติ กรุณาตรวจสอบก่อนอัปโหลด");
+      }
 
       type Candidate = { pageIndex: number; person: RosterPerson; region: PageRegion };
       const mapped: Candidate[] = [];
