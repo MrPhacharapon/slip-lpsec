@@ -8,7 +8,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 // @ts-ignore
 import Papa from 'papaparse';
 import { supabase } from '@/lib/supabase';
-import { parseRoster, identifyPageSlips, assertUniquePeriod } from "@/lib/slip-validation";
+import { parseRoster, identifyPageSlips, assertUniquePeriod, validateSlipPageLayout } from "@/lib/slip-validation";
 import type { PdfToken, RosterPerson, PageRegion } from "@/lib/slip-validation";
 
 
@@ -131,8 +131,23 @@ export default function AdminPage() {
             "str" in item && "transform" in item)
           .map(item => ({ str: item.str, y: item.transform[5] }));
         const pageHeight = page.view[3] - page.view[1];
+        const pageWidth = page.view[2] - page.view[0];
         try {
-          mapped.push(...identifyPageSlips(tokens, pageHeight, roster).map(({ person, region }) =>
+          const layout = validateSlipPageLayout(
+            tokens, pageWidth, pageHeight, selectedMonth, selectedYear
+          );
+          const identified = identifyPageSlips(tokens, pageHeight, roster);
+          if ((layout === "single" && (
+              identified.length !== 1 || identified[0].region !== "full"
+            )) ||
+            (layout === "double" && (
+              identified.length !== 2 ||
+              identified[0].region !== "top" ||
+              identified[1].region !== "bottom"
+            ))) {
+            throw new Error("จำนวนสลิปที่จับคู่ได้ไม่ตรงกับโครงสร้างหน้าของ PDF");
+          }
+          mapped.push(...identified.map(({ person, region }) =>
             ({ pageIndex, person, region })));
         } catch (error) {
           throw new Error("หน้า " + (pageIndex + 1) + ": " +
