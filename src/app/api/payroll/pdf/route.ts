@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { payrollDb } from "@/lib/server/payroll-db";
+import { requirePayrollRateLimit } from "@/lib/server/payroll-rate-limit";
 import { noStoreHeaders, reply, requireSameOrigin, validAccount, validPeriod } from "@/lib/server/route-guards";
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,8 @@ export async function POST(req: NextRequest) {
     const { bankAccount, month, year } = await req.json();
     if (!validAccount(bankAccount) || !validPeriod(month, year))
       return reply({ error: "ข้อมูลค้นหาไม่ถูกต้อง" }, 400);
+    const limited = await requirePayrollRateLimit(req, "pdf", bankAccount);
+    if (limited) return limited;
     const db = payrollDb();
     const history = await db.from("upload_history").select("id")
       .eq("month", month).eq("year", year).limit(1);
