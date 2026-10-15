@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseRoster,identifyPageSlips,assertUniquePeriod,SlipValidationError} from '../src/lib/slip-validation.ts';
+import {parseRoster,identifyPageSlips,assertUniquePeriod,SlipValidationError,validateSlipPageLayout} from '../src/lib/slip-validation.ts';
 
 const roster=parseRoster([
   ['ชื่อ-นามสกุล','ตำแหน่ง','เลขที่บัญชี'],
@@ -49,4 +49,35 @@ test("reject another roster person's name even when OCR misses their bank accoun
 test('reject if another roster name is embedded within the same detected half',()=>{
   const ambiguous={str:heading+'นายตัวอย่าง หนึ่ง เลขที่บัญชี 1234567890 และ นางสาวตัวอย่าง สอง',y:650};
   assert.throws(()=>identifyPageSlips([ambiguous],842,roster),SlipValidationError);
+});
+
+const pageHeader = (month, y, withAccountLabel = true) => [
+  {str: 'ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน '+month+' ปี พ.ศ. 2569',y},
+  {str: 'ชื่อ -นามสกุล นายทดสอบ เอกสาร', y:y-27},
+  {str: 'เลขตำแหน่ง 0000000 เลขที่บัญชี'+(withAccountLabel?' 1234567890':''),y:y-50},
+];
+
+test('actual 1071x792 January-August geometry is single-slip',()=>{
+  assert.equal(validateSlipPageLayout(pageHeader('มกราคม',780),1071,792,'มกราคม','2569'),'single');
+});
+test('actual 1071x792 September-October geometry is two-slip',()=>{
+  assert.equal(validateSlipPageLayout(
+    [...pageHeader('กันยายน',780),...pageHeader('กันยายน',384)],
+    1071,792,'กันยายน','2569'), 'double');
+});
+test('document month mismatch is rejected',()=>{
+  assert.throws(()=>validateSlipPageLayout(pageHeader('เมษายน',780),1071,792,'พฤษภาคม','2569'),SlipValidationError);
+});
+test('unexpected PDF dimensions are rejected',()=>{
+  assert.throws(()=>validateSlipPageLayout(pageHeader('มกราคม',780),595,842,'มกราคม','2569'),SlipValidationError);
+});
+test('missing bottom header but residual bank details are rejected',()=>{
+  const pdf=[...pageHeader('ตุลาคม',780),
+    {str:'ชื่อ -นามสกุล บุคคลอื่น เลขที่บัญชี 0987654321',y:315}];
+  assert.throws(()=>validateSlipPageLayout(pdf,1071,792,'ตุลาคม','2569'),SlipValidationError);
+});
+test('mixed printed months in two halves are rejected',()=>{
+  assert.throws(()=>validateSlipPageLayout(
+    [...pageHeader('กันยายน',780),...pageHeader('ตุลาคม',384)],
+    1071,792,'กันยายน','2569'),SlipValidationError);
 });
