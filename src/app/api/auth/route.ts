@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_COOKIE, adminCookieOptions, createAdminSession, sameOrigin, verifyAdminPassword, verifyAdminSession } from "@/lib/server/admin-session";
+import { requirePayrollRateLimit } from "@/lib/server/payroll-rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,8 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return noStore({ success: false, error: "คำขอไม่ถูกต้อง" }, 403);
+  const limited = await requirePayrollRateLimit(request, "admin_login");
+  if (limited) return limited;
   try {
     const body = await request.json();
     if (!verifyAdminPassword(body?.password)) {
