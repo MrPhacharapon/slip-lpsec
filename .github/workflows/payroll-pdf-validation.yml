@@ -33,7 +33,7 @@ jobs:
       - name: Type-check
         run: npx tsc --noEmit
       - name: ESLint for new validation module
-        run: npx eslint src/lib/slip-validation.ts src/lib/pdfjs-compat.ts
+        run: npx eslint src/lib/slip-validation.ts src/lib/pdfjs-compat.ts src/lib/server src/app/api/admin src/app/api/payroll src/app/api/auth/route.ts
       - name: Full-project ESLint baseline (report only)
         continue-on-error: true
         run: npm run lint
