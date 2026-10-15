@@ -107,7 +107,7 @@ export default function Home() {
     setIsLoading(true);
     setResults(null);
     try {
-      if (!/^\\d{10}$/.test(bankAccount.trim())) throw new Error('เลขบัญชีต้องมี 10 หลัก');
+      if (!/^\d{10}$/.test(bankAccount.trim())) throw new Error('เลขบัญชีต้องมี 10 หลัก');
       const response = await fetch('/api/payroll/search', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bankAccount: bankAccount.trim() }), cache: 'no-store',
