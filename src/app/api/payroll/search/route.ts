@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { payrollDb } from "@/lib/server/payroll-db";
+import { requirePayrollRateLimit } from "@/lib/server/payroll-rate-limit";
 import { lookupStaffDirectory } from "@/lib/server/staff-directory";
 import { reply, requireSameOrigin, validAccount } from "@/lib/server/route-guards";
 export const dynamic = "force-dynamic";
@@ -10,6 +11,8 @@ export async function POST(req: NextRequest) {
   try {
     const input = await req.json();
     if (!validAccount(input?.bankAccount)) return reply({ error: "เลขบัญชีไม่ถูกต้อง" }, 400);
+    const limited = await requirePayrollRateLimit(req, "search", input.bankAccount);
+    if (limited) return limited;
     const db = payrollDb();
     const [slips, history] = await Promise.all([
       db.from("slips").select("month,year,name").eq("bank_account", input.bankAccount).limit(120),
