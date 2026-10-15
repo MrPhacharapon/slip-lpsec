@@ -37,7 +37,8 @@ export function verifyAdminSession(cookie: string | undefined, now = Date.now())
   if (!payload || !signature || extra) return false;
   const actual = Buffer.from(signature, "base64url");
   const expected = Buffer.from(sign(payload), "base64url");
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return false;
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected) ||
+      signature !== expected.toString("base64url")) return false;
   try {
     const parsed: unknown = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
     if (!parsed || typeof parsed !== "object") return false;
