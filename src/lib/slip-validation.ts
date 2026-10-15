@@ -53,7 +53,8 @@ function accountMatches(tokens: PdfToken[], roster: RosterPerson[]): RosterPerso
 function matchesPositionNumber(tokens: PdfToken[], expectedPosition: string): boolean {
   const compact = normalizeText(tokens.map(token => token.str).join(""));
   // Verify the position number specifically following the PDF's label.
-  const occurrences = [...compact.matchAll(/เลขตำแหน่ง([0-9]{7})(?![0-9])/g)];
+  const label = normalizeText("เลขตำแหน่ง");
+  const occurrences = [...compact.matchAll(new RegExp(label + "([0-9]{7})(?![0-9])", "g"))];
   return occurrences.length === 1 && occurrences[0][1] === expectedPosition;
 }
 
@@ -157,7 +158,7 @@ export function validateSlipPageLayout(
   const topText = normalizeText(top.map(t => t.str).join(""));
   const bottomText = normalizeText(bottom.map(t => t.str).join(""));
   const heading = "ใบรับรองการจ่ายเงินเดือน";
-  const labels = ["ชื่อ-นามสกุล", "เลขที่บัญชี", "เลขตำแหน่ง"];
+  const labels = ["ชื่อ-นามสกุล", "เลขที่บัญชี", "เลขตำแหน่ง"].map(normalizeText);
   const headingCount = (text: string) => text.split(heading).length - 1;
   const validPart = (text: string) =>
     headingCount(text) === 1 && labels.every(label => text.includes(label));
