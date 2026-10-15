@@ -36,6 +36,11 @@ export async function startMockSupabase() {
     for await (const chunk of req) payload += chunk.toString();
     const headers = { "Content-Type": "application/json; charset=utf-8", "Content-Range": "*/*" };
     if (url.pathname === "/rest/v1/rpc/check_payroll_rate_limit") {
+      if (current.rateLimiterUnavailable) {
+        res.writeHead(503, headers);
+        res.end(JSON.stringify({ code: "MOCK_DB_DOWN", message: "Synthetic rate-limiter unavailable" }));
+        return;
+      }
       try {
         if (req.method !== "POST") { res.writeHead(405, headers); res.end("{}"); return; }
         const { p_key_hash, p_window_seconds, p_max_requests } = JSON.parse(payload);
