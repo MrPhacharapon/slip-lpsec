@@ -34,6 +34,8 @@
 4. ทดสอบ PDF สมมติที่ถูกต้อง รูปแบบ A/B จำนวนคี่, เซสชัน Admin, ปฏิเสธผู้ไม่มีสิทธิ์, และ staged → publish → staff lookup → PDF response
 5. ยืนยันข้อมูลจำลองลบได้หมดหลังทดสอบ, รัน Security Advisors อีกครั้ง
 
+**สคริปต์ทดสอบจริงที่เตรียมไว้:** `scripts/test-isolated-supabase-live.mjs` ใช้เฉพาะ `TEST_SUPABASE_URL` ที่ตรงกับโครงการทดสอบนี้และ `TEST_SUPABASE_SERVICE_ROLE_KEY` ฝั่งเครื่องส่วนตัว พร้อม `TEST_SUPABASE_RUN=I_UNDERSTAND_TEST_ONLY`; สร้าง PDF สมมติจริงด้วย pdf-lib, ทดสอบ stage, duplicate, publish, read-back, Private Storage แล้วลบข้อมูลจำลองใน `finally`. **ยังไม่ได้รันสคริปต์นี้** เพราะสภาพแวดล้อมปัจจุบันไม่มี test service-role secret ผ่านเครื่องมือที่ปลอดภัย และไม่มีการเชื่อมต่อเครือข่ายจาก container. ไม่ควรใส่ secret ใน GitHub Actions หรือในแชท.
+
 **ยังไม่ดำเนินการ:** การสร้างรหัส secret ของโครงการทดสอบในสถานที่ทำงานสำหรับ Next.js, การ Deploy ไป Vercel, การแก้ไข RLS/Storage ใน Production, การ Merge เข้า main
 
 ## ข้อพึงระวัง
