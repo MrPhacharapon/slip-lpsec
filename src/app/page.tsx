@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, Download, FileText, AlertCircle, Settings, X, Lock, Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
 
@@ -13,6 +13,8 @@ export default function Home() {
   const router = useRouter();
   
   const [bankAccount, setBankAccount] = useState("");
+  const [resultAccount, setResultAccount] = useState("");
+  const searchId = useRef(0);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
   const [showBankAccount, setShowBankAccount] = useState(false);
@@ -78,7 +80,7 @@ export default function Home() {
   const requestPdf = async (month: string, year: string): Promise<Blob> => {
     const res = await fetch("/api/payroll/pdf", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bankAccount: bankAccount.trim(), month, year }),
+      body: JSON.stringify({ bankAccount: resultAccount, month, year }),
       cache: "no-store",
     });
     if (!res.ok) throw new Error("ไม่สามารถโหลด PDF ได้");
@@ -102,15 +104,18 @@ export default function Home() {
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bankAccount.trim()) return;
+    const account = bankAccount.trim();
+    if (!account) return;
+    const requestId = ++searchId.current;
 
     setIsLoading(true);
     setResults(null);
+    setResultAccount("");
     try {
-      if (!/^\d{10}$/.test(bankAccount.trim())) throw new Error('เลขบัญชีต้องมี 10 หลัก');
+      if (!/^\d{10}$/.test(account)) throw new Error('เลขบัญชีต้องมี 10 หลัก');
       const response = await fetch('/api/payroll/search', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ bankAccount: bankAccount.trim() }), cache: 'no-store',
+        body: JSON.stringify({ bankAccount: account }), cache: 'no-store',
       });
       if (!response.ok) throw new Error('ไม่สามารถค้นหาสลิปได้');
       const payload = await response.json();
@@ -157,16 +162,20 @@ export default function Home() {
         return monthA - monthB; // Ascending Month (Jan -> Dec)
       });
       
+      if (requestId !== searchId.current) return;
+      setResultAccount(account);
       setResults(filteredData);
       setEmployeeData(employee);
 
 
 
     } catch (error) {
-      console.error("Search error:", error);
-      alert("เกิดข้อผิดพลาดในการค้นหา");
+      if (requestId === searchId.current) {
+        console.error("Search error:", error);
+        alert("เกิดข้อผิดพลาดในการค้นหา");
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === searchId.current) setIsLoading(false);
     }
   };
 
@@ -259,7 +268,14 @@ export default function Home() {
                   placeholder="กรอกเลขบัญชี (ไม่ต้องมีขีด)"
                   className="glass-input w-full bg-white/70 pr-24 font-mono"
                   value={bankAccount}
-                  onChange={(e) => setBankAccount(e.target.value)}
+                  onChange={(e) => {
+                    searchId.current += 1;
+                    setBankAccount(e.target.value);
+                    setResults(null);
+                    setResultAccount("");
+                    setEmployeeData(null);
+                    setIsLoading(false);
+                  }}
                 />
                 <button
                   type="button"
