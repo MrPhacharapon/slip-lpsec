@@ -1,5 +1,5 @@
 /** Fail-closed checks for payroll PDF mapping. No salary data is logged. */
-export type RosterPerson = { name: string; bankAccount: string };
+export type RosterPerson = { name: string; bankAccount: string; positionNumber: string };
 export type PdfToken = { str: string; y: number };
 export type PageRegion = "top" | "bottom" | "full";
 export type VerifiedSlip = { person: RosterPerson; region: PageRegion };
@@ -23,17 +23,18 @@ export function parseRoster(rows: string[][]): RosterPerson[] {
   for (const [index, row] of rows.entries()) {
     const name = (row[0] ?? "").trim();
     const rawAccount = (row[2] ?? "").trim();
+    const positionNumber = (row[3] ?? "").trim();
     if (!name && !rawAccount) continue;
     if (/^(ชื่อ|ชื่อ[\s-]*นามสกุล)/.test(name) || /^(เลขที่)?บัญชี/.test(rawAccount)) continue;
     const bankAccount = stripAccountSeparators(rawAccount);
-    if (!name || !/^\d{10}$/.test(bankAccount)) {
-      throw new SlipValidationError(`ทะเบียนบุคลากรแถว ${index + 1} ชื่อหรือเลขบัญชีไม่ถูกต้อง`);
+    if (!name || !/^\d{10}$/.test(bankAccount) || !/^\d{7}$/.test(positionNumber)) {
+      throw new SlipValidationError(`ทะเบียนบุคลากรแถว ${index + 1} ชื่อ เลขบัญชี หรือเลขตำแหน่งไม่ถูกต้อง`);
     }
     if (seen.has(bankAccount)) {
       throw new SlipValidationError(`ทะเบียนบุคลากรมีเลขบัญชีซ้ำ (แถว ${index + 1})`);
     }
     seen.add(bankAccount);
-    persons.push({ name, bankAccount });
+    persons.push({ name, bankAccount, positionNumber });
   }
   if (!persons.length) throw new SlipValidationError("ไม่พบทะเบียนบุคลากรที่ใช้ตรวจสอบได้");
   return persons;
@@ -47,6 +48,13 @@ function accountMatches(tokens: PdfToken[], roster: RosterPerson[]): RosterPerso
     new RegExp(`(^|\\D)${bankAccount}(?!\\d)`).test(joined) ||
     new RegExp(`(^|\\D)${bankAccount}(?!\\d)`).test(compact)
   );
+}
+
+function matchesPositionNumber(tokens: PdfToken[], expectedPosition: string): boolean {
+  const compact = normalizeText(tokens.map(token => token.str).join(""));
+  // Verify the position number specifically following the PDF's label.
+  const occurrences = [...compact.matchAll(/เลขตำแหน่ง([0-9]{7})(?![0-9])/g)];
+  return occurrences.length === 1 && occurrences[0][1] === expectedPosition;
 }
 
 function matchesName(tokens: PdfToken[], expectedName: string): boolean {
@@ -90,8 +98,10 @@ export function identifyPageSlips(
     const bottomNames = roster.filter((entry) => matchesName(bottom, entry.name));
     if (topNames.length !== 1 || bottomNames.length !== 1 ||
         topNames[0].bankAccount !== topPeople[0].bankAccount ||
-        bottomNames[0].bankAccount !== bottomPeople[0].bankAccount) {
-      throw new SlipValidationError("ชื่อในแต่ละสลิปไม่ตรงหรือพบชื่อบุคลากรหลายคน");
+        bottomNames[0].bankAccount !== bottomPeople[0].bankAccount ||
+        !matchesPositionNumber(top, topPeople[0].positionNumber) ||
+        !matchesPositionNumber(bottom, bottomPeople[0].positionNumber)) {
+      throw new SlipValidationError("ชื่อ เลขบัญชี หรือเลขตำแหน่งในแต่ละสลิปไม่ตรงทะเบียน");
     }
     return [{ person: topPeople[0], region: "top" },
             { person: bottomPeople[0], region: "bottom" }];
@@ -105,8 +115,9 @@ export function identifyPageSlips(
   }
   const namesOnPage = roster.filter((entry) => matchesName(tokens, entry.name));
   if (namesOnPage.length !== 1 ||
-      namesOnPage[0].bankAccount !== allPeople[0].bankAccount) {
-    throw new SlipValidationError("พบชื่อบุคลากรอื่นหรือชื่อไม่ตรงเลขบัญชี ห้ามส่ง PDF ทั้งหน้า");
+      namesOnPage[0].bankAccount !== allPeople[0].bankAccount ||
+      !matchesPositionNumber(tokens, allPeople[0].positionNumber)) {
+    throw new SlipValidationError("ชื่อ เลขบัญชี หรือเลขตำแหน่งไม่ตรงทะเบียน ห้ามส่ง PDF ทั้งหน้า");
   }
   // A missing second account with a second name/header is ambiguous: never give away a full page.
   if ((topHeading && bottom.length > 5 && bottomPeople.length === 0 &&
@@ -131,19 +142,11 @@ export function assertUniquePeriod(slips: VerifiedSlip[]): void {
 
 
 /**
- * Validates the two source layouts confirmed across Jan-Oct 2569:
- * 1071x792 PDF points, either one slip (upper half with lower half blank)
- * or two slips divided at y=396. The document's printed period, not the
- * UI selection alone, must match. This only handles native PDF text, not OCR.
- *
- * Input token y coordinates use the PDF.js bottom-origin transform[5].
+ * The legacy template has one slip per page; the compact template allows
+ * one (odd-count last page) or two. Printed month/year are not validated.
  */
 export function validateSlipPageLayout(
-  tokens: PdfToken[],
-  pageWidth: number,
-  pageHeight: number,
-  expectedMonth: string,
-  expectedYear: string
+  tokens: PdfToken[], pageWidth: number, pageHeight: number
 ): "single" | "double" {
   if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) ||
       Math.abs(pageWidth - 1071) > 3 || Math.abs(pageHeight - 792) > 3) {
@@ -153,20 +156,19 @@ export function validateSlipPageLayout(
   const bottom = tokens.filter(({ y }) => y < pageHeight / 2);
   const topText = normalizeText(top.map(t => t.str).join(""));
   const bottomText = normalizeText(bottom.map(t => t.str).join(""));
-  const printedPeriod = normalizeText("ประจำเดือน" + expectedMonth + "ปีพ.ศ." + expectedYear);
   const heading = "ใบรับรองการจ่ายเงินเดือน";
-  const labels = ["ชื่อ-นามสกุล", "เลขที่บัญชี"];
+  const labels = ["ชื่อ-นามสกุล", "เลขที่บัญชี", "เลขตำแหน่ง"];
+  const headingCount = (text: string) => text.split(heading).length - 1;
   const validPart = (text: string) =>
-    text.includes(heading) && text.includes(printedPeriod) &&
-    labels.every(label => text.includes(label));
-
+    headingCount(text) === 1 && labels.every(label => text.includes(label));
   if (!validPart(topText)) {
-    throw new SlipValidationError("หัวเอกสาร ชื่อบัญชี หรือเดือนปีที่พิมพ์บน PDF ไม่ตรงกับที่เลือก");
+    throw new SlipValidationError("หัวเอกสารส่วนบนไม่ครบหรือจำนวนหัวเอกสารไม่ถูกต้อง");
   }
-  if (bottomText.includes(heading) || bottomText.includes("ชื่อ-นามสกุล") ||
-      bottomText.includes("เลขที่บัญชี")) {
+  const bottomLooksLikeSlip = headingCount(bottomText) > 0 ||
+    labels.some(label => bottomText.includes(label));
+  if (bottomLooksLikeSlip) {
     if (!validPart(bottomText)) {
-      throw new SlipValidationError("พบสลิปครึ่งล่างที่ข้อมูลหัวเอกสารไม่ครบหรือเดือนปีไม่ตรง");
+      throw new SlipValidationError("พบข้อมูลสลิปครึ่งล่างแต่หัวเอกสารไม่ครบ");
     }
     return "double";
   }
