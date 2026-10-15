@@ -479,6 +479,94 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // Unpublished staging recovery: preview, explicit typed confirmation,
+    // atomic snapshot check, and never deleting already published payroll.
+    {
+      const state = { rows: [{
+        id: "staged-recovery-one", name: persons[0].name,
+        bank_account: persons[0].account, month: "มกราคม", year: "2569",
+        pdf_base64: "FICTIONAL_NOT_PUBLISHED",
+      }], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      const admin = await context.newPage();
+      try {
+        await admin.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await admin.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
+
+        await admin.getByRole("button", { name: "ตรวจสอบข้อมูลอัปโหลดค้าง" }).click();
+        await admin.getByText("พบสลิปที่ยังไม่เผยแพร่ 1 รายการ").waitFor();
+        const inspection = await admin.evaluate(async () => {
+          const r = await fetch("/api/admin/staged-recovery", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month: "มกราคม", year: "2569" }),
+          });
+          return { status: r.status, value: await r.json() };
+        });
+        assert.equal(inspection.status, 200);
+        assert.match(inspection.value.snapshot, /^[a-f0-9]{64}$/);
+
+        state.rows.push({
+          id: "staged-recovery-second", name: persons[1].name,
+          bank_account: persons[1].account, month: "มกราคม", year: "2569",
+          pdf_base64: "FICTIONAL_NOT_PUBLISHED",
+        });
+        const stale = await admin.evaluate(async ({snapshot}) => {
+          const r = await fetch("/api/admin/staged-recovery", {
+            method: "DELETE", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              month: "มกราคม", year: "2569", expectedCount: 1, snapshot,
+              confirmation: "ลบสลิปค้าง มกราคม 2569",
+            }),
+          });
+          return r.status;
+        }, {snapshot: inspection.value.snapshot});
+        assert.equal(stale, 409, "stale preview must not delete newly staged data");
+        assert.equal(state.rows.length, 2);
+
+        await admin.getByRole("button", { name: "ตรวจสอบข้อมูลอัปโหลดค้าง" }).click();
+        await admin.getByText("พบสลิปที่ยังไม่เผยแพร่ 2 รายการ").waitFor();
+        admin.once("dialog", dialog => dialog.accept("ลบสลิปค้าง มกราคม 2569"));
+        await admin.getByRole("button", { name: "ยืนยันการล้างสลิปค้าง (ต้องพิมพ์ยืนยันอีกครั้ง)" }).click();
+        // After request succeeds a separate success alert is displayed.
+        admin.once("dialog", dialog => dialog.accept());
+        await until(() => state.rows.length === 0, "explicit recovery removed only staged rows");
+        assert.equal(state.history.length, 0, "recovery never creates or removes publication history");
+        console.log("PASS staged recovery: stale snapshot denied; typed confirmation deletes only unpublished rows.");
+      } finally { await context.close(); }
+    }
+    {
+      const state = {
+        rows: [{ id: "published-protected", name: persons[0].name,
+          bank_account: persons[0].account, month: "มกราคม", year: "2569",
+          pdf_base64: "PUBLISHED_DOCUMENT" }],
+        history: [{ id: "published-history", month: "มกราคม", year: "2569",
+          file_name: "fictional.pdf", storage_path: null, created_at: new Date().toISOString() }],
+      };
+      const context = await makeSandboxContext(browser, state);
+      const admin = await context.newPage();
+      try {
+        await admin.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await admin.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
+        await admin.getByRole("button", { name: "ตรวจสอบข้อมูลอัปโหลดค้าง" }).click();
+        await admin.getByText("เดือนนี้เผยแพร่แล้ว ไม่อนุญาตให้ใช้วิธีกู้คืนสลิปค้าง").waitFor();
+        assert.equal(await admin.getByRole("button", { name: "ยืนยันการล้างสลิปค้าง (ต้องพิมพ์ยืนยันอีกครั้ง)" }).count(), 0);
+        const attempted = await admin.evaluate(async () => {
+          const r = await fetch("/api/admin/staged-recovery", {
+            method: "DELETE", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              month: "มกราคม", year: "2569", expectedCount: 1,
+              snapshot: "a".repeat(64), confirmation: "ลบสลิปค้าง มกราคม 2569",
+            }),
+          });
+          return r.status;
+        });
+        assert.equal(attempted, 409);
+        assert.equal(state.rows.length, 1);
+        assert.equal(state.history.length, 1);
+        console.log("PASS published-month recovery guard: no destructive action available.");
+      } finally { await context.close(); }
+    }
+
     // A partly staged period must remain invisible until finalization.
     {
       const state = { rows: [], history: [] };
