@@ -221,6 +221,17 @@ async function main() {
         headers: { Origin: base }, data: { month: "ตุลาคม", year: "2569" },
       });
       assert.equal(forbiddenMutation.status(), 401, "unauthenticated staff cannot reach admin writes");
+      const noPreview = await visitor.request.post(base + "/api/admin/staged-recovery", {
+        headers: { Origin: base }, data: { month: "ตุลาคม", year: "2569" },
+      });
+      assert.equal(noPreview.status(), 401, "unauthenticated clients cannot inspect staged payroll");
+      const noDiscard = await visitor.request.delete(base + "/api/admin/staged-recovery", {
+        headers: { Origin: base }, data: {
+          month: "ตุลาคม", year: "2569", expectedCount: 1,
+          snapshot: "a".repeat(64), confirmation: "ลบสลิปค้าง ตุลาคม 2569",
+        },
+      });
+      assert.equal(noDiscard.status(), 401, "unauthenticated clients cannot discard staged payroll");
       const forbiddenLine = await visitor.request.post(base + "/api/send-line", {
         headers: { Origin: base }, data: { month: "ตุลาคม", year: "2569" },
       });
