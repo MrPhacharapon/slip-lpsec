@@ -1,5 +1,6 @@
 /** Test-only HTTP mock for server->Supabase requests. Never runs in the app. */
 import { createServer } from "node:http";
+import { createHash } from "node:crypto";
 
 let current = { rows: [], history: [] };
 let rateBuckets = new Map();
@@ -33,12 +34,54 @@ export async function startMockSupabase() {
       "/rest/v1/rpc/stage_payroll_slips",
       "/rest/v1/rpc/publish_payroll_period",
     ].includes(url.pathname);
-    if (!table && !isPayrollRpc && url.pathname !== "/rest/v1/rpc/check_payroll_rate_limit") {
+    const isRecoveryRpc = [
+      "/rest/v1/rpc/inspect_unpublished_payroll_period",
+      "/rest/v1/rpc/discard_unpublished_payroll_period",
+    ].includes(url.pathname);
+    if (!table && !isPayrollRpc && !isRecoveryRpc &&
+        url.pathname !== "/rest/v1/rpc/check_payroll_rate_limit") {
       res.writeHead(404); res.end("{}"); return;
     }
     let payload = "";
     for await (const chunk of req) payload += chunk.toString();
     const headers = { "Content-Type": "application/json; charset=utf-8", "Content-Range": "*/*" };
+    if (isRecoveryRpc) {
+      const fail = (status, code, message) => {
+        res.writeHead(status, headers);
+        res.end(JSON.stringify({ code, message }));
+      };
+      if (req.method !== "POST") { fail(405, "405", "POST required"); return; }
+      try {
+        const args = JSON.parse(payload);
+        const { p_month: month, p_year: year } = args;
+        if (!month || !year) { fail(400, "22023", "invalid period"); return; }
+        const published = current.history.some(r => r.month === month && r.year === year);
+        const rows = current.rows.filter(r => r.month === month && r.year === year);
+        const snapshot = createHash("sha256").update(rows
+          .map(r => String(r.id) + ":" + r.bank_account)
+          .sort().join("\n"), "utf8").digest("hex");
+        if (url.pathname.endsWith("/inspect_unpublished_payroll_period")) {
+          res.writeHead(200, headers);
+          res.end(JSON.stringify({
+            published, stagedCount: rows.length,
+            snapshot: published || !rows.length ? null : snapshot,
+          }));
+        } else {
+          if (published) { fail(409, "23505", "published period"); return; }
+          if (args.p_expected_count < 1 || args.p_expected_count > 500 ||
+              args.p_expected_count !== rows.length ||
+              args.p_expected_snapshot !== snapshot) {
+            fail(409, "40001", "staged snapshot changed"); return;
+          }
+          current.rows = current.rows.filter(r => r.month !== month || r.year !== year);
+          res.writeHead(200, headers);
+          res.end(JSON.stringify(rows.length));
+        }
+      } catch (error) {
+        fail(500, "MOCK_RPC_ERROR", String(error));
+      }
+      return;
+    }
     if (isPayrollRpc) {
       const fail = (status, code, message) => {
         res.writeHead(status, headers);
