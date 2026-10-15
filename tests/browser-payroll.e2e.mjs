@@ -212,6 +212,10 @@ async function main() {
         headers: { Origin: base }, data: { month: "ตุลาคม", year: "2569" },
       });
       assert.equal(forbiddenMutation.status(), 401, "unauthenticated staff cannot reach admin writes");
+      const forbiddenLine = await visitor.request.post(base + "/api/send-line", {
+        headers: { Origin: base }, data: { month: "ตุลาคม", year: "2569" },
+      });
+      assert.equal(forbiddenLine.status(), 401, "public visitors cannot trigger LINE payroll announcements");
     } finally { await visitor.close(); }
 
 
