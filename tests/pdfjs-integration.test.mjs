@@ -21,8 +21,8 @@ async function createTwoPersonPdf() {
 }
 
 const roster = parseRoster([
-  ["Person Alpha", "", "1234567890"],
-  ["Person Beta", "", "0987654321"],
+  ["Person Alpha", "", "1234567890", "0000001"],
+  ["Person Beta", "", "0987654321", "0000002"],
 ]);
 
 async function extractTokens(bytes) {
@@ -45,7 +45,12 @@ async function extractTokens(bytes) {
 
 test("real pdf-lib PDF text extracted by pdfjs maps both fictional owners", async () => {
   const {height,tokens} = await extractTokens(await createTwoPersonPdf());
-  const result = identifyPageSlips(tokens,height,roster);
+  // The built-in Helvetica fixture cannot draw Thai labels. Inject only the
+  // position label text token; names/account numbers still come from PDF.js.
+  const withPositionLabels = [...tokens,
+    {str:"เลขตำแหน่ง 0000001",y:715},
+    {str:"เลขตำแหน่ง 0000002",y:280}];
+  const result = identifyPageSlips(withPositionLabels,height,roster);
   assert.deepEqual(result.map(r=>[r.person.bankAccount,r.region]),
     [["1234567890","top"],["0987654321","bottom"]]);
 });
