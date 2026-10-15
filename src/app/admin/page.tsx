@@ -9,6 +9,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import Papa from 'papaparse';
 import { supabase } from '@/lib/supabase';
 import { parseRoster, identifyPageSlips, assertUniquePeriod, validateSlipPageLayout } from "@/lib/slip-validation";
+import { ensurePdfJsMapCompatibility } from "@/lib/pdfjs-compat";
 import type { PdfToken, RosterPerson, PageRegion } from "@/lib/slip-validation";
 
 
@@ -107,8 +108,9 @@ export default function AdminPage() {
         throw new Error("รองรับเฉพาะไฟล์ PDF");
       }
       const buffer = await file.arrayBuffer();
+      ensurePdfJsMapCompatibility();
       const pdfjs = await import("pdfjs-dist");
-      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.compat.mjs";
       const doc = await pdfjs.getDocument({ data: buffer.slice(0) }).promise;
       if (!doc.numPages || doc.numPages > 500) throw new Error("จำนวนหน้า PDF ไม่ถูกต้องหรือมากเกินกำหนด");
 
