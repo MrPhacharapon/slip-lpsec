@@ -128,3 +128,47 @@ export function assertUniquePeriod(slips: VerifiedSlip[]): void {
     seen.add(slip.person.bankAccount);
   }
 }
+
+
+/**
+ * Validates the two source layouts confirmed across Jan-Oct 2569:
+ * 1071x792 PDF points, either one slip (upper half with lower half blank)
+ * or two slips divided at y=396. The document's printed period, not the
+ * UI selection alone, must match. This only handles native PDF text, not OCR.
+ *
+ * Input token y coordinates use the PDF.js bottom-origin transform[5].
+ */
+export function validateSlipPageLayout(
+  tokens: PdfToken[],
+  pageWidth: number,
+  pageHeight: number,
+  expectedMonth: string,
+  expectedYear: string
+): "single" | "double" {
+  if (!Number.isFinite(pageWidth) || !Number.isFinite(pageHeight) ||
+      Math.abs(pageWidth - 1071) > 3 || Math.abs(pageHeight - 792) > 3) {
+    throw new SlipValidationError("ขนาด PDF ไม่ตรงกับแบบฟอร์มที่รองรับ");
+  }
+  const top = tokens.filter(({ y }) => y >= pageHeight / 2);
+  const bottom = tokens.filter(({ y }) => y < pageHeight / 2);
+  const topText = normalizeText(top.map(t => t.str).join(""));
+  const bottomText = normalizeText(bottom.map(t => t.str).join(""));
+  const printedPeriod = normalizeText("ประจำเดือน" + expectedMonth + "ปีพ.ศ." + expectedYear);
+  const heading = "ใบรับรองการจ่ายเงินเดือน";
+  const labels = ["ชื่อ-นามสกุล", "เลขที่บัญชี"];
+  const validPart = (text: string) =>
+    text.includes(heading) && text.includes(printedPeriod) &&
+    labels.every(label => text.includes(label));
+
+  if (!validPart(topText)) {
+    throw new SlipValidationError("หัวเอกสาร ชื่อบัญชี หรือเดือนปีที่พิมพ์บน PDF ไม่ตรงกับที่เลือก");
+  }
+  if (bottomText.includes(heading) || bottomText.includes("ชื่อ-นามสกุล") ||
+      bottomText.includes("เลขที่บัญชี")) {
+    if (!validPart(bottomText)) {
+      throw new SlipValidationError("พบสลิปครึ่งล่างที่ข้อมูลหัวเอกสารไม่ครบหรือเดือนปีไม่ตรง");
+    }
+    return "double";
+  }
+  return "single";
+}
