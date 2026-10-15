@@ -50,15 +50,25 @@ test("real pdf-lib PDF text extracted by pdfjs maps both fictional owners", asyn
     [["1234567890","top"],["0987654321","bottom"]]);
 });
 
-test("pdf-lib copied PDF with CropBox still contains hidden other person's text", async () => {
+test("expanding pdf-lib CropBox recovers hidden other person's data", async () => {
   const source = await PDFDocument.load(await createTwoPersonPdf());
   const copy = await PDFDocument.create();
   const [page] = await copy.copyPages(source,[0]);
   page.setCropBox(0,421,595,421);
   page.setMediaBox(0,421,595,421);
   copy.addPage(page);
-  const {tokens} = await extractTokens(await copy.save());
-  const joined=tokens.map(x=>x.str).join(" ");
-  assert.ok(joined.includes("1234567890"),"visible person's account remains");
-  assert.ok(joined.includes("0987654321"),"cropped out person's account is still embedded");
+  const croppedBytes = await copy.save();
+  const shown = await extractTokens(croppedBytes);
+  assert.ok(shown.tokens.some(x => x.str.includes("1234567890")),
+    "visible person's account remains");
+  // PDF.js respects the CropBox when presenting text. However, reopening the
+  // same copied-page file and restoring the page box reveals the other owner.
+  const reopen = await PDFDocument.load(croppedBytes);
+  const croppedPage = reopen.getPage(0);
+  croppedPage.setCropBox(0,0,595,842);
+  croppedPage.setMediaBox(0,0,595,842);
+  const restored = await extractTokens(await reopen.save());
+  const joined = restored.tokens.map(x=>x.str).join(" ");
+  assert.ok(joined.includes("1234567890"), "visible person's account remains");
+  assert.ok(joined.includes("0987654321"), "hidden person's account is recoverable");
 });
