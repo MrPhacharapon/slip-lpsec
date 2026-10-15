@@ -28,7 +28,7 @@ BEGIN
   ) INTO v_published;
   SELECT pg_catalog.count(*)::integer,
       pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
-        pg_catalog.coalesce(pg_catalog.string_agg(
+        COALESCE(pg_catalog.string_agg(
           id::text || ':' || bank_account, E'\n' ORDER BY bank_account, id
         ), ''), 'UTF8'
       )), 'hex')
@@ -76,7 +76,7 @@ BEGIN
 
   SELECT pg_catalog.count(*)::integer,
       pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
-        pg_catalog.coalesce(pg_catalog.string_agg(
+        COALESCE(pg_catalog.string_agg(
           id::text || ':' || bank_account, E'\n' ORDER BY bank_account, id
         ), ''), 'UTF8'
       )), 'hex')
