@@ -101,6 +101,15 @@ async function printablePdf(browser, layout, rosterPeople, wrongPosition = false
     });
     const file = await PDFDocument.load(buffer);
     assert.equal(file.getPageCount(), groups.length, "synthetic PDF has correct page count");
+    if (rosterPeople.length === 1 && !wrongPosition) {
+      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+      const job = pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true });
+      const raw = await job.promise;
+      const extracted = await (await raw.getPage(1)).getTextContent();
+      console.log("Synthetic-only PDF.js text spans:",
+        JSON.stringify(extracted.items.filter(i => "str" in i).map(i => i.str).slice(0,35)));
+      await job.destroy();
+    }
     return buffer;
   } finally { await page.close(); }
 }
