@@ -192,6 +192,10 @@ async function checkStaffSearch(browser, account, name) {
     });
     if (await staff.getByText("ใบรับรองการจ่ายเงินเดือน ประจำเดือน มกราคม").count())
       assert.equal(pdf.status(), 200, "anonymous staff can retrieve only own selected PDF");
+    await staff.locator('input[placeholder="กรอกเลขบัญชี (ไม่ต้องมีขีด)"]').fill("9000000099");
+    await staff.getByText("ผลการค้นหา (1 รายการ)").waitFor({ state: "hidden" });
+    assert.equal(await staff.getByText(name, { exact: true }).count(), 0,
+      "changing account clears stale owner's visible PDF results");
   } finally { await context.close(); }
 }
 
