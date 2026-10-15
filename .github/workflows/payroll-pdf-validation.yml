@@ -1,0 +1,34 @@
+name: Payroll PDF validation (isolated)
+on:
+  push:
+    branches:
+      - fix/payroll-pdf-validation-no-deploy
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: local-test-key-not-a-secret
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Synthetic ownership regression tests
+        run: node --experimental-strip-types --test tests/slip-validation.test.mjs
+      - name: Type-check
+        run: npx tsc --noEmit
+      - name: ESLint
+        run: npm run lint
+      - name: Build only (never deploy)
+        run: npm run build
