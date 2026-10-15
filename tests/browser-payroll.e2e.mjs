@@ -257,6 +257,24 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // Failure to reach the shared limiter must never silently bypass it.
+    {
+      setMockState({ rows: [], history: [], rateLimiterUnavailable: true });
+      const visitor = await browser.newContext();
+      try {
+        const lookup = await visitor.request.post(base + "/api/payroll/search", {
+          headers: { Origin: base }, data: { bankAccount: "9000000123" },
+        });
+        assert.equal(lookup.status(), 503, "search fails closed when limiter cannot be reached");
+        const pdf = await visitor.request.post(base + "/api/payroll/pdf", {
+          headers: { Origin: base },
+          data: { bankAccount: "9000000123", month: "มกราคม", year: "2569" },
+        });
+        assert.equal(pdf.status(), 503, "PDF download fails closed when limiter cannot be reached");
+        console.log("PASS fail-closed: search/PDF withheld during rate-limit service outage.");
+      } finally { await visitor.close(); }
+    }
+
     // Distributed-style rate limiting applies without a staff login or OTP.
     {
       setMockState({ rows: [], history: [] });
