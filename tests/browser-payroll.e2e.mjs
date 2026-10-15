@@ -96,7 +96,7 @@ async function printablePdf(browser, layout, rosterPeople, wrongPosition = false
     ].join(""));
     await page.evaluate(() => document.fonts.ready);
     const buffer = await page.pdf({
-      width: "1071pt", height: "792pt", printBackground: true,
+      width: "14.875in", height: "11in", printBackground: true,
       preferCSSPageSize: true, margin: { top: "0", bottom: "0", left: "0", right: "0" },
     });
     const file = await PDFDocument.load(buffer);
