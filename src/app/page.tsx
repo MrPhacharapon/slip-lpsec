@@ -201,7 +201,6 @@ export default function Home() {
       const data = await response.json();
       
       if (response.ok && data.success) {
-        sessionStorage.setItem("adminAuth", "true");
         router.push("/admin");
       } else {
         setAdminError(data.error || "รหัสผ่านไม่ถูกต้อง");
