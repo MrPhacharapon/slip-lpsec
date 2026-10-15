@@ -1,0 +1,45 @@
+# Supabase โครงการทดสอบ sliplpsec-test — ผลตรวจรับเบื้องต้น
+
+ตรวจ ณ 15 ตุลาคม 2569 • **โครงการทดสอบเท่านั้น** (project ref `dpaqvxtbpaduknergflm`, Singapore, Free) • ไม่ใช่ผลการตรวจรับ Production
+
+## การแยกโครงการและข้อมูล
+
+- สร้าง `sliplpsec-test` ภายใน Organization เดิม: Supabase ยืนยันค่าใช้จ่ายสร้างโครงการ `$0/เดือน`.
+- **ไม่ใช้หรือคัดลอกสลิปเงินจริงและบัญชีจริง**; ไม่มีการแตะ Production.
+- ตาราง `public.slips` และ `public.upload_history` มีคอลัมน์ที่แอปต้องใช้, เปิด RLS, และตัดสิทธิ์ `anon` กับ `authenticated` ทั้งการอ่านและเขียน.
+- Bucket `slips` เป็น **Private**, ไม่มี `storage.objects` policy เปิดสาธารณะ.
+- มี unique index สำหรับ `(bank_account, month, year)` และสำหรับ `(month,year)` ในประวัติการอัปโหลด **เฉพาะโครงการทดสอบ**.
+
+## ผลทดสอบกับ PostgreSQL ของโครงการทดสอบจริง
+
+| กรณี | ผลที่สังเกต |
+|---|---|
+| `SET LOCAL ROLE anon; SELECT ... FROM public.slips` | ถูกปฏิเสธด้วย 42501 (permission denied) |
+| `SET LOCAL ROLE anon; INSERT ... INTO public.slips` | ถูกปฏิเสธด้วย 42501 |
+| `SET LOCAL ROLE authenticated; SELECT ... FROM public.upload_history` | ถูกปฏิเสธด้วย 42501 |
+| `SET LOCAL ROLE service_role; SELECT ... FROM public.slips` | สำเร็จ |
+| `SET LOCAL ROLE anon; SELECT count(*) FROM storage.objects WHERE bucket_id='slips'` | 0 รายการที่มองเห็น (bucket ยังไม่มีไฟล์) |
+| เพิ่มแถวสมมติ 2 รายการก่อนมี `upload_history` | มี staged rows 2, published 0, discoverable 0 |
+| เพิ่มข้อมูล `bank_account` ซ้ำในเดือนเดียวกัน | PostgreSQL ปฏิเสธ 23505 unique constraint |
+| เพิ่ม `upload_history` ของเดือนสมมติ | มีรายการที่ค้นผ่านเงื่อนไข published 2 |
+| ลบข้อมูลสมมติทั้งหมด | `slips=0`, `upload_history=0` |
+
+**ข้อจำกัดการทดสอบ:** ตัวอย่างที่ใส่ในฐานข้อมูลจริงเป็นข้อความสมมติที่มีลักษณะขึ้นต้นด้วย `%PDF-` แต่ไม่ได้เป็นเอกสาร PDF จริง จึงไม่ได้พิสูจน์การเปิด PDF.js/Browser กับฐานข้อมูลใหม่ การทดสอบ Browser E2E ที่ผ่านมาใช้ PDF สมมติจริงแต่จำลอง Supabase ด้วย localhost ไม่ใช่ Supabase โครงการทดสอบนี้
+
+## เงื่อนไขสำหรับการทดสอบ Next.js → Supabase จริงครั้งถัดไป
+
+1. รัน Next.js แบบส่วนตัวโดยตั้ง `SUPABASE_URL=https://dpaqvxtbpaduknergflm.supabase.co` (ต้องชี้โครงการทดสอบเท่านั้น)
+2. ตั้ง `SUPABASE_SERVICE_ROLE_KEY` ของ **โครงการทดสอบเท่านั้น** ใน Secret/Environment ฝั่งเซิร์ฟเวอร์ **ห้ามส่งกุญแจในแชท, GitHub, logs หรือ `NEXT_PUBLIC_`**. เครื่องมือที่เชื่อมในแชทนี้สามารถอ่านได้เฉพาะ publishable key; ไม่สามารถอ่าน secret/service-role key ได้.
+3. ตั้ง `STAFF_DIRECTORY_DISABLED=true` เพื่อไม่อ่าน Google Sheets จริง, ตั้ง `APP_ORIGIN`, `ADMIN_PASSWORD` สมมติ, และ `ADMIN_SESSION_SECRET` สมมติที่ปลอดภัยพอสำหรับการทดสอบ (ไม่ใช้รหัส Production)
+4. ทดสอบ PDF สมมติที่ถูกต้อง รูปแบบ A/B จำนวนคี่, เซสชัน Admin, ปฏิเสธผู้ไม่มีสิทธิ์, และ staged → publish → staff lookup → PDF response
+5. ยืนยันข้อมูลจำลองลบได้หมดหลังทดสอบ, รัน Security Advisors อีกครั้ง
+
+**ยังไม่ดำเนินการ:** การสร้างรหัส secret ของโครงการทดสอบในสถานที่ทำงานสำหรับ Next.js, การ Deploy ไป Vercel, การแก้ไข RLS/Storage ใน Production, การ Merge เข้า main
+
+## ข้อพึงระวัง
+
+- การไม่เผยแพร่แถว staged ใน Search API เป็นตรรกะของ **แอป** (`upload_history` เป็นเงื่อนไข) ไม่ใช่ข้อบังคับ RLS ของ `service_role` ซึ่งอ่านทุกแถวได้; ต้องทดสอบ API จริงต่อ.
+- บัญชีธนาคารยังเป็นข้อมูลค้นหา ไม่ใช่หลักฐานพิสูจน์ตัวตน; ผู้ที่รู้เลขบัญชีผู้อื่นยังมีความเสี่ยงเข้าถึงสลิป.
+- เมื่อใช้งาน Production จำเป็นต้องเปลี่ยนค่าตั้งต้นแยกกันโดยไม่ปิดระบบเดิมก่อนพร้อม; ห้ามเปิดสิทธิ์ anon ใน Production เพื่อให้โค้ดเดิมทำงานต่อ.
+
+อ้างอิงแนวทาง [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security) และ [API keys](https://supabase.com/docs/guides/getting-started/api-keys).
