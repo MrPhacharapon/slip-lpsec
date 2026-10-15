@@ -42,7 +42,7 @@ test('duplicate account across source pages fails',()=>{
   assert.throws(()=>assertUniquePeriod([item,item]),SlipValidationError);
 });
 
-test('reject another roster person's name even when OCR misses their bank account and heading',()=>{
+test("reject another roster person's name even when OCR misses their bank account and heading",()=>{
   const secondLine={str:'นางสาวตัวอย่าง สอง',y:180};
   assert.throws(()=>identifyPageSlips([top,secondLine],842,roster),SlipValidationError);
 });
