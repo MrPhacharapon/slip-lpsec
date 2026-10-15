@@ -513,6 +513,15 @@ async function main() {
           data: { bankAccount: persons[0].account, month, year },
         });
         assert.equal(hiddenPdf.status(), 404);
+        const prematurePublish = await admin.evaluate(async ({ month, year }) => {
+          const res = await fetch("/api/admin/finalize", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month, year, fileName: "fictional-payroll.pdf", expectedCount: 2 }),
+          });
+          return res.status;
+        }, { month, year });
+        assert.equal(prematurePublish, 409, "incorrect expected count cannot publish staged rows");
+        assert.equal(state.history.length, 0, "failed transaction leaves month unpublished");
         const finalizeResult = await admin.evaluate(async ({ month, year }) => {
           const response = await fetch("/api/admin/finalize", {
             method: "POST", headers: { "Content-Type": "application/json" },
@@ -521,6 +530,15 @@ async function main() {
           return { status: response.status, text: await response.text() };
         }, { month, year });
         assert.equal(finalizeResult.status, 200, finalizeResult.text);
+        const secondPublish = await admin.evaluate(async ({ month, year }) => {
+          const res = await fetch("/api/admin/finalize", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month, year, fileName: "duplicate.pdf", expectedCount: 1 }),
+          });
+          return res.status;
+        }, { month, year });
+        assert.equal(secondPublish, 409, "second publish must be blocked");
+        assert.equal(state.history.length, 1, "failed second publish creates no duplicate history");
         const visible = await visitor.request.post(base + "/api/payroll/search", {
           headers: { Origin: base }, data: { bankAccount: persons[0].account },
         });
