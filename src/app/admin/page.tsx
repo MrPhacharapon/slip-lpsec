@@ -31,7 +31,7 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const router = useRouter();
 
-  const [sheetUrl, setSheetUrl] = useState("https://docs.google.com/spreadsheets/d/1warnAj4x4d7lZecJ3vApaGltSxx1Ji_wv2CkOhcF0nI/edit?gid=0#gid=0");
+  const [sheetUrl, setSheetUrl] = useState(process.env.NEXT_PUBLIC_STAFF_SHEET_URL || "");
   const [selectedMonth, setSelectedMonth] = useState("มกราคม");
   const [selectedYear, setSelectedYear] = useState("2569");
   const [file, setFile] = useState<File | null>(null);
