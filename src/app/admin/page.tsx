@@ -8,6 +8,9 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 // @ts-ignore
 import Papa from 'papaparse';
 import { supabase } from '@/lib/supabase';
+import { parseRoster, identifyPageSlips, assertUniquePeriod } from "@/lib/slip-validation";
+import type { PdfToken, RosterPerson, PageRegion } from "@/lib/slip-validation";
+
 
 const MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -86,245 +89,126 @@ export default function AdminPage() {
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
-
+    if (!file || isUploading) return;
     setIsUploading(true);
     setUploadSuccess(false);
-
     try {
-      // 1. Fetch Google Sheet CSV
       const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-      if (!match) {
-        alert("ลิงก์ Google Sheet ไม่ถูกต้อง");
-        setIsUploading(false);
-        return;
-      }
-      const sheetId = match[1];
-      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=0`;
-      
-      const res = await fetch(csvUrl);
-      if (!res.ok) {
-        alert("ไม่สามารถอ่านข้อมูล Google Sheet ได้ โปรดตรวจสอบการแชร์ไฟล์");
-        setIsUploading(false);
-        return;
-      }
-      const csvText = await res.text();
-      const parsed = Papa.parse<string[]>(csvText, { skipEmptyLines: true });
-      const accounts = parsed.data;
-      
-      // 2. Read PDF for splitting (pdf-lib)
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(arrayBuffer.slice(0));
-      const pages = pdfDoc.getPages();
-      
-      if (pages.length === 0) {
-        alert("ไม่พบหน้าในไฟล์ PDF");
-        setIsUploading(false);
-        return;
-      }
+      if (!match) throw new Error("ลิงก์ทะเบียน Google Sheet ไม่ถูกต้อง");
+      const response = await fetch(
+        "https://docs.google.com/spreadsheets/d/" + match[1] + "/export?format=csv&gid=0",
+        { cache: "no-store" }
+      );
+      if (!response.ok) throw new Error("อ่านทะเบียนบุคลากรไม่ได้");
+      const rawRoster = await response.text();
+      const roster = parseRoster(Papa.parse<string[]>(rawRoster, { skipEmptyLines: true }).data);
 
-      // 3. Read PDF for text extraction (pdfjs-dist)
-      let pdfjsDoc: any = null;
-      let pdfjsLib: any = null;
-      try {
-        pdfjsLib = await import('pdfjs-dist');
-        if (pdfjsLib?.GlobalWorkerOptions) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+      if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) {
+        throw new Error("รองรับเฉพาะไฟล์ PDF");
+      }
+      const buffer = await file.arrayBuffer();
+      const pdfjs = await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+      const doc = await pdfjs.getDocument({ data: buffer.slice(0) }).promise;
+      if (!doc.numPages || doc.numPages > 500) throw new Error("จำนวนหน้า PDF ไม่ถูกต้องหรือมากเกินกำหนด");
+
+      // Read-only preflight: never delete old payroll records to replace a month.
+      const { data: existing, error: existingError } = await supabase.from("slips")
+        .select("id").eq("month", selectedMonth).eq("year", selectedYear).limit(1);
+      if (existingError) throw new Error("ไม่สามารถตรวจรายการเดิมได้");
+      if (existing?.length) throw new Error("เดือนนี้มีข้อมูลอยู่แล้ว: ไม่อนุญาตให้เขียนทับ โปรดใช้กระบวนการทบทวนชุดข้อมูล");
+
+      type Candidate = { pageIndex: number; person: RosterPerson; region: PageRegion };
+      const mapped: Candidate[] = [];
+      for (let pageIndex = 0; pageIndex < doc.numPages; pageIndex++) {
+        const page = await doc.getPage(pageIndex + 1);
+        if (page.rotate % 360 !== 0 || page.view[1] !== 0) {
+          throw new Error("พบหน้าหมุนหรือมีตำแหน่งเริ่มต้นผิดปกติ: หน้า " + (pageIndex + 1));
         }
-        pdfjsDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
-      } catch (err) {
-        console.warn("Could not parse PDF for text extraction. Falling back to sequential mode.", err);
-      }
-      
-      // Clean previous slips for this month and year to prevent duplicates
-      await supabase
-        .from('slips')
-        .delete()
-        .match({ month: selectedMonth, year: selectedYear });
-
-      // 4. Match PDF pages/sections to accounts and save to Supabase
-      let startIndex = 0;
-      if (accounts.length > 0) {
-        const headerRowStr = accounts[0].join(' ');
-        if (headerRowStr.includes('บัญชี') || headerRowStr.includes('ชื่อ')) {
-          startIndex = 1;
-        }
-      }
-
-      let fallbackIndex = 0;
-
-      for (let i = 0; i < pages.length; i++) {
-        const originalPage = pages[i];
-        const { width, height } = originalPage.getSize();
-        const halfHeight = height / 2;
-
-        let pageSections: Array<{
-          account: string | null;
-          name: string | null;
-          crop: [number, number, number, number] | null;
-        }> = [];
-
-        if (pdfjsDoc) {
-          try {
-            const page = await pdfjsDoc.getPage(i + 1);
-            const textContent = await page.getTextContent();
-            
-            // Check if page contains 2 slips (top half vs bottom half)
-            const topItems: string[] = [];
-            const bottomItems: string[] = [];
-
-            for (const item of textContent.items as any[]) {
-              const y = item.transform ? item.transform[5] : 0;
-              if (y >= halfHeight) {
-                topItems.push(item.str);
-              } else {
-                bottomItems.push(item.str);
-              }
-            }
-
-            const topText = topItems.join(' ');
-            const bottomText = bottomItems.join(' ');
-
-            const topAccMatch = topText.match(/\b\d{10}\b/);
-            const bottomAccMatch = bottomText.match(/\b\d{10}\b/);
-
-            const hasTwoSlips = !!(topAccMatch && bottomAccMatch);
-
-            if (hasTwoSlips) {
-              pageSections = [
-                {
-                  account: topAccMatch[0],
-                  name: null,
-                  crop: [0, halfHeight, width, halfHeight]
-                },
-                {
-                  account: bottomAccMatch[0],
-                  name: null,
-                  crop: [0, 0, width, halfHeight]
-                }
-              ];
-            } else if (topAccMatch) {
-              pageSections = [
-                {
-                  account: topAccMatch[0],
-                  name: null,
-                  crop: [0, halfHeight, width, halfHeight]
-                }
-              ];
-            } else if (bottomAccMatch) {
-              pageSections = [
-                {
-                  account: bottomAccMatch[0],
-                  name: null,
-                  crop: [0, 0, width, halfHeight]
-                }
-              ];
-            } else {
-              const fullText = (textContent.items as any[]).map((it: any) => it.str).join(' ');
-              const fullMatch = fullText.match(/\b\d{10}\b/);
-              if (fullMatch) {
-                pageSections = [
-                  {
-                    account: fullMatch[0],
-                    name: null,
-                    crop: null
-                  }
-                ];
-              }
-            }
-          } catch (err) {
-            console.warn(`Error extracting text on page ${i + 1}`, err);
-          }
-        }
-
-        // Fallback: If no sections detected via OCR, fallback to 1 whole page
-        if (pageSections.length === 0) {
-          pageSections = [{ account: null, name: null, crop: null }];
-        }
-
-        for (const sec of pageSections) {
-          let matchedRow = null;
-
-          if (sec.account) {
-            matchedRow = accounts.find((r: string[]) => r[2] && String(r[2]).trim() === sec.account);
-          }
-
-          if (!matchedRow) {
-            matchedRow = accounts[startIndex + fallbackIndex];
-            fallbackIndex++;
-          }
-
-          if (!matchedRow && !sec.account) continue;
-
-          const name = matchedRow ? matchedRow[0] : (sec.name || "เจ้าหน้าที่");
-          const bankAccount = sec.account || (matchedRow ? String(matchedRow[2]).trim() : "");
-          if (!bankAccount) continue;
-
-          const newPdf = await PDFDocument.create();
-          const [copiedPage] = await newPdf.copyPages(pdfDoc, [i]);
-          if (sec.crop) {
-            copiedPage.setCropBox(sec.crop[0], sec.crop[1], sec.crop[2], sec.crop[3]);
-            copiedPage.setMediaBox(sec.crop[0], sec.crop[1], sec.crop[2], sec.crop[3]);
-          }
-          newPdf.addPage(copiedPage);
-          const newPdfBase64 = await newPdf.saveAsBase64({ dataUri: false });
-
-          // Save slip to Supabase
-          await supabase.from('slips').insert({
-            name: name,
-            bank_account: bankAccount,
-            month: selectedMonth,
-            year: selectedYear,
-            pdf_base64: newPdfBase64
-          });
-
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
-      }
-
-      // 4. Upload the combined 8MB PDF to Supabase Storage (Using safe filename without Thai characters)
-      const safeFileName = `slip_backup_${Date.now()}.pdf`;
-      const { error: storageError } = await supabase.storage
-        .from('slips')
-        .upload(safeFileName, file);
-
-      if (storageError) {
-        console.error("Storage error:", storageError);
-        alert("คำเตือน: อัปโหลดสลิปสำเร็จ แต่ไม่สามารถสำรองไฟล์ต้นฉบับก้อนใหญ่ลง Storage ได้ (อาจตั้งค่า Policy ไม่ถูกต้อง)");
-      }
-
-      // 5. Save History
-      const { error: historyError } = await supabase.from('upload_history').insert({
-        month: selectedMonth,
-        year: selectedYear,
-        file_name: file.name,
-        storage_path: safeFileName
-      });
-
-      if (historyError) {
-        console.error("History error:", historyError);
-      }
-
-      if (notifyLine) {
+        const text = await page.getTextContent();
+        const tokens: PdfToken[] = text.items
+          .filter((item): item is typeof item & { str: string; transform: number[] } =>
+            "str" in item && "transform" in item)
+          .map(item => ({ str: item.str, y: item.transform[5] }));
+        const pageHeight = page.view[3] - page.view[1];
         try {
-          await fetch('/api/send-line', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ month: selectedMonth, year: selectedYear })
-          });
-        } catch (e) {
-          console.error("Failed to trigger LINE notification", e);
+          mapped.push(...identifyPageSlips(tokens, pageHeight, roster).map(({ person, region }) =>
+            ({ pageIndex, person, region })));
+        } catch (error) {
+          throw new Error("หน้า " + (pageIndex + 1) + ": " +
+            (error instanceof Error ? error.message : "อ่านเลขบัญชีไม่สำเร็จ"));
         }
       }
+      assertUniquePeriod(mapped);
 
+      // Render selected regions into fresh raster PDFs; never retain hidden
+      // text/resources from the other person's half of the source PDF.
+      const rows: Array<{
+        name: string; bank_account: string; month: string; year: string; pdf_base64: string;
+      }> = [];
+      for (let pageIndex = 0; pageIndex < doc.numPages; pageIndex++) {
+        const page = await doc.getPage(pageIndex + 1);
+        const view = page.getViewport({ scale: 2.5 });
+        if (view.width * view.height > 12000000) {
+          throw new Error("PDF หน้า " + (pageIndex + 1) + " มีขนาดใหญ่เกินกำหนด");
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(view.width);
+        canvas.height = Math.ceil(view.height);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("ไม่สามารถเตรียมภาพ PDF ได้");
+        await page.render({ canvasContext: ctx, canvas, viewport: view }).promise;
+        for (const entry of mapped.filter(e => e.pageIndex === pageIndex)) {
+          const mid = Math.floor(canvas.height / 2);
+          const sourceY = entry.region === "bottom" ? mid : 0;
+          const targetHeight = entry.region === "full" ? canvas.height :
+            entry.region === "top" ? mid : canvas.height - mid;
+          const sliced = document.createElement("canvas");
+          sliced.width = canvas.width;
+          sliced.height = targetHeight;
+          const slicedCtx = sliced.getContext("2d");
+          if (!slicedCtx) throw new Error("ไม่สามารถตัดแบ่งภาพ PDF ได้");
+          slicedCtx.fillStyle = "#ffffff";
+          slicedCtx.fillRect(0, 0, sliced.width, sliced.height);
+          slicedCtx.drawImage(canvas, 0, sourceY, canvas.width, targetHeight,
+            0, 0, sliced.width, targetHeight);
+          const jpeg = await new Promise<Blob>((resolve, reject) =>
+            sliced.toBlob(b => b ? resolve(b) : reject(new Error("สร้างไฟล์ภาพไม่สำเร็จ")),
+              "image/jpeg", 0.96));
+          const safePdf = await PDFDocument.create();
+          const jpg = await safePdf.embedJpg(new Uint8Array(await jpeg.arrayBuffer()));
+          const destination = safePdf.addPage([sliced.width / 2.5, sliced.height / 2.5]);
+          destination.drawImage(jpg, { x: 0, y: 0,
+            width: destination.getWidth(), height: destination.getHeight() });
+          rows.push({ name: entry.person.name, bank_account: entry.person.bankAccount,
+            month: selectedMonth, year: selectedYear,
+            pdf_base64: await safePdf.saveAsBase64({ dataUri: false }) });
+          sliced.width = 0; sliced.height = 0;
+        }
+        canvas.width = 0; canvas.height = 0;
+      }
+      if (rows.length !== mapped.length || !rows.length) {
+        throw new Error("จำนวนสลิปที่ตรวจและจำนวนไฟล์ที่สร้างไม่ตรงกัน");
+      }
+      if (!window.confirm("ตรวจสอบผ่าน " + rows.length + " รายการจาก " + doc.numPages +
+          " หน้า\nบันทึกเฉพาะเดือนใหม่ (ไม่เขียนทับรายการเดิม) หรือไม่?")) return;
+
+      // Single batch request, do not delete previously published records.
+      const { error: uploadError } = await supabase.from("slips").insert(rows);
+      if (uploadError) throw new Error("บันทึกสลิปไม่สำเร็จ: " + uploadError.message);
+      // Do not upload the consolidated PDF to the currently PUBLIC Storage bucket.
+      const { error: historyError } = await supabase.from("upload_history").insert({
+        month: selectedMonth, year: selectedYear, file_name: file.name, storage_path: null
+      });
+      if (historyError) {
+        throw new Error("บันทึกสลิปแล้ว แต่ประวัติไม่สมบูรณ์ กรุณาติดต่อผู้ดูแลและห้ามกดอัปโหลดซ้ำ");
+      }
       setUploadSuccess(true);
-      fetchHistory();
+      await fetchHistory();
       setFile(null);
-      
-      setTimeout(() => setUploadSuccess(false), 5000);
     } catch (error) {
-      console.error("Upload error:", error);
-      alert("เกิดข้อผิดพลาดในการอัปโหลด");
+      console.error("Payroll import failed:", error instanceof Error ? error.message : "unknown");
+      alert(error instanceof Error ? error.message : "ตรวจสอบเอกสารไม่สำเร็จ");
     } finally {
       setIsUploading(false);
     }

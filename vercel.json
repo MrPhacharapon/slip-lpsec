@@ -1,4 +1,9 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "fix/payroll-pdf-validation-no-deploy": false
+    }
+  },
   "crons": [
     {
       "path": "/api/keep-alive",
