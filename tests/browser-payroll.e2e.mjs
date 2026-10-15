@@ -167,6 +167,19 @@ async function checkStoredImageOnlyPDF(row, expectedHeight) {
   const page = doc.getPage(0);
   const contents = page.node.Contents();
   assert.ok(contents, "image-backed page exists");
+  // PDF text extraction must reveal no embedded original characters in the
+  // fresh raster-only PDF, including text from the other owner's half.
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const loading = pdfjs.getDocument({
+    data: new Uint8Array(Buffer.from(row.pdf_base64, "base64")),
+    useSystemFonts: true,
+  });
+  const raw = await loading.promise;
+  try {
+    const extracted = await (await raw.getPage(1)).getTextContent();
+    assert.equal(extracted.items.filter(i => "str" in i && i.str.trim()).length, 0,
+      "the split file must not retain any hidden PDF text");
+  } finally { await loading.destroy(); }
 }
 
 async function checkStaffSearch(context, account, name) {
@@ -257,6 +270,58 @@ async function main() {
         console.log("PASS negative: wrong position blocks any write.");
       } finally { await context.close(); }
     }
+
+    // Wrong registered name: matching account and position must not override it.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const spoof = { ...persons[0], name: "นายผิดชื่อ ทดสอบ" };
+        const pdf = await printablePdf(browser, "A", [spoof]);
+        const {page,messages} = await submitOnAdmin(context, pdf);
+        await until(() => messages.length > 0, "name mismatch alert");
+        assert.equal(state.rows.length, 0);
+        assert.equal(state.history.length, 0);
+        await page.close();
+        console.log("PASS negative: name mismatch cannot publish.");
+      } finally { await context.close(); }
+    }
+
+    // One mismatch on a 2-person B page must abort the whole month.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const pdf = await printablePdf(browser, "B", persons.slice(0, 2), true);
+        const {page,messages} = await submitOnAdmin(context, pdf);
+        await until(() => messages.length > 0, "mixed valid/invalid two-person page alert");
+        assert.equal(state.rows.length, 0);
+        assert.equal(state.history.length, 0);
+        await page.close();
+        console.log("PASS negative: B page partial ownership mismatch rejects whole batch.");
+      } finally { await context.close(); }
+    }
+
+    // Previously uploaded period: refuse overwrite, even with a valid PDF.
+    {
+      const original = {
+        id: "already-published", month: "มกราคม", year: "2569",
+        bank_account: persons[0].account, pdf_base64: "not-mutated",
+      };
+      const state = { rows: [original], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const {page,messages} = await submitOnAdmin(context, pdf, "มกราคม");
+        await until(() => messages.length > 0, "existing period alert");
+        assert.equal(state.rows.length, 1);
+        assert.equal(state.rows[0].pdf_base64, "not-mutated");
+        assert.equal(state.history.length, 0);
+        await page.close();
+        console.log("PASS negative: existing period is not overwritten or deleted.");
+      } finally { await context.close(); }
+    }
+
   } finally {
     if (browser) await browser.close();
     process.kill(-server.pid, "SIGTERM");
