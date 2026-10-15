@@ -14,7 +14,7 @@ export async function lookupStaffDirectory(account: string):
     if (!response.ok) return null;
     const csv = await response.text();
     if (csv.length > 1_000_000) return null;
-    const rows = Papa.parse<string[]>(csv, { skipEmptyLines: true }).data;
+    const rows: string[][] = Papa.parse(csv, { skipEmptyLines: true }).data;
     const match = rows.find(row => String(row[2] ?? "").trim() === account);
     if (!match || !String(match[0] ?? "").trim()) return null;
     return { name: String(match[0]).trim(), position: String(match[1] ?? "").trim() };
