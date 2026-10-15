@@ -24,16 +24,19 @@ export async function POST(req: NextRequest) {
       }
       seen.add(row.bank_account);
     }
-    const db = payrollDb();
-    const { data: published, error: publishedError } = await db.from("upload_history")
-      .select("id").eq("month", first.month).eq("year", first.year).limit(1);
-    if (publishedError) throw publishedError;
-    if (published?.length) return reply({ error: "เดือนนี้เผยแพร่แล้ว" }, 409);
-    const inserted = await db.from("slips").insert(rows.map(row => ({
-      name: row.name, bank_account: row.bank_account,
-      month: row.month, year: row.year, pdf_base64: row.pdf_base64,
-    })));
-    if (inserted.error) throw inserted.error;
-    return reply({ success: true, inserted: rows.length });
+    const { data, error } = await payrollDb().rpc("stage_payroll_slips", {
+      p_month: first.month,
+      p_year: first.year,
+      p_rows: rows.map(row => ({
+        name: row.name, bank_account: row.bank_account, month: row.month,
+        year: row.year, pdf_base64: row.pdf_base64,
+      })),
+    });
+    if (error?.code === "23505") return reply({ error: "เดือนนี้เผยแพร่แล้วหรือมีสลิปซ้ำ ห้ามอัปโหลดทับ" }, 409);
+    if (error?.code === "22023") return reply({ error: "ข้อมูลอัปโหลดไม่ถูกต้อง" }, 400);
+    if (error || typeof data !== "number" || data !== rows.length) {
+      return reply({ error: "ไม่สามารถยืนยันการบันทึกสลิปได้ กรุณาตรวจสถานะก่อนอัปโหลดซ้ำ" }, 503);
+    }
+    return reply({ success: true, inserted: data });
   } catch { return reply({ error: "ไม่สามารถบันทึกชุดสลิปได้" }, 503); }
 }
