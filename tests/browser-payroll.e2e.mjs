@@ -336,6 +336,47 @@ async function main() {
     }
 
 
+    // A partly staged period must remain invisible until finalization.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      const visitor = await browser.newContext();
+      try {
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const month = "พฤศจิกายน", year = "2569";
+        const staged = await context.request.post(base + "/api/admin/slips", {
+          headers: { Origin: base }, data: { rows: [{
+            name: persons[0].name, bank_account: persons[0].account,
+            month, year, pdf_base64: pdf.toString("base64"),
+          }] },
+        });
+        assert.equal(staged.status(), 200);
+        assert.equal(state.rows.length, 1);
+        assert.equal(state.history.length, 0);
+        const lookup = await visitor.request.post(base + "/api/payroll/search", {
+          headers: { Origin: base }, data: { bankAccount: persons[0].account },
+        });
+        assert.equal(lookup.status(), 200);
+        assert.equal((await lookup.json()).results.length, 0,
+          "staged slip is hidden from staff until the history is published");
+        const hiddenPdf = await visitor.request.post(base + "/api/payroll/pdf", {
+          headers: { Origin: base },
+          data: { bankAccount: persons[0].account, month, year },
+        });
+        assert.equal(hiddenPdf.status(), 404);
+        const finalized = await context.request.post(base + "/api/admin/finalize", {
+          headers: { Origin: base },
+          data: { month, year, fileName: "fictional-payroll.pdf", expectedCount: 1 },
+        });
+        assert.equal(finalized.status(), 200);
+        const visible = await visitor.request.post(base + "/api/payroll/search", {
+          headers: { Origin: base }, data: { bankAccount: persons[0].account },
+        });
+        assert.equal((await visible.json()).results.length, 1);
+        console.log("PASS staged upload: not visible to staff before publish, visible after.");
+      } finally { await visitor.close(); await context.close(); }
+    }
+
     // Capacity regression: 39 fictitious staff -> 20 pages, last with one.
     // This is a browser-only benchmark, not a production performance claim.
     {
