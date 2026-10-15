@@ -21,7 +21,7 @@ test("cookie carries signature and expires", () => {
 test("tampered or forged session must fail", () => {
   const token = createAdminSession();
   const [body,signature] = token.split(".");
-  assert.equal(verifyAdminSession(body + "." + signature.slice(0,-1) + "a"), false);
+  assert.equal(verifyAdminSession(body + "." + (signature[0] === "a" ? "b" : "a") + signature.slice(1)), false);
   assert.equal(verifyAdminSession("", Date.now()), false);
   assert.equal(verifyAdminSession("abc.def"), false);
 });
