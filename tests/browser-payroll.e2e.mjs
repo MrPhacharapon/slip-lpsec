@@ -276,6 +276,27 @@ async function main() {
         console.log("PASS anonymous staff search rate limiting: 429 after per-account quota.");
       } finally { await visitor.close(); }
     }
+    // Direct PDF requests must also be rate-limited; no bypass via the
+    // download endpoint when someone guesses valid account numbers.
+    {
+      setMockState({ rows: [], history: [] });
+      const visitor = await browser.newContext();
+      try {
+        for (let attempt = 1; attempt <= 20; attempt++) {
+          const response = await visitor.request.post(base + "/api/payroll/pdf", {
+            headers: { Origin: base },
+            data: { bankAccount: "9000000432", month: "มกราคม", year: "2569" },
+          });
+          assert.equal(response.status(), 404, "unpublished PDF is not available");
+        }
+        const excess = await visitor.request.post(base + "/api/payroll/pdf", {
+          headers: { Origin: base },
+          data: { bankAccount: "9000000432", month: "มกราคม", year: "2569" },
+        });
+        assert.equal(excess.status(), 429, "21st PDF request for one bank account is throttled");
+        console.log("PASS anonymous direct PDF access rate limiting: 429 after account quota.");
+      } finally { await visitor.close(); }
+    }
     // Wrong admin password attempts are throttled even with a valid Origin.
     {
       setMockState({ rows: [], history: [] });
