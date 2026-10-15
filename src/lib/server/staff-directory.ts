@@ -1,6 +1,6 @@
 // Only return the matched public-roster row, never the whole CSV to the browser.
 // This preserves the legacy staff-position badge when the Sheet is reachable.
-// @ts-ignore - papaparse has no bundled declarations in this project
+// @ts-expect-error - papaparse has no bundled declarations in this project
 import Papa from "papaparse";
 
 export async function lookupStaffDirectory(account: string):
