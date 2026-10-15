@@ -40,6 +40,7 @@ jobs:
         run: |
           npm install --no-save --package-lock=false playwright@1.55.0
           npx playwright install --with-deps chromium
-          sudo apt-get install -y fonts-thai-tlwg
+          sudo apt-get install -y fonts-thai-tlwg fonts-noto-core
+          fc-match 'Noto Sans Thai' | head -1
       - name: Browser E2E with mocked Sheets and Supabase
         run: node tests/browser-payroll.e2e.mjs
