@@ -134,7 +134,7 @@ export default function AdminPage() {
         const pageWidth = page.view[2] - page.view[0];
         try {
           const layout = validateSlipPageLayout(
-            tokens, pageWidth, pageHeight, selectedMonth, selectedYear
+            tokens, pageWidth, pageHeight
           );
           const identified = identifyPageSlips(tokens, pageHeight, roster);
           if ((layout === "single" && (
