@@ -18,6 +18,14 @@ const MONTHS = [
 ];
 const YEARS = ["2569", "2568", "2567"];
 
+type StagedReview = {
+  month: string;
+  year: string;
+  published: boolean;
+  stagedCount: number;
+  snapshot: string | null;
+};
+
 type HistoryItem = {
   id: string;
   month: string;
@@ -41,6 +49,8 @@ export default function AdminPage() {
   const [isMounted, setIsMounted] = useState(false);
 
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [stagedReview, setStagedReview] = useState<StagedReview | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -260,6 +270,56 @@ export default function AdminPage() {
     }
   };
 
+  const handleInspectStaged = async () => {
+    if (isUploading || recoveryBusy) return;
+    setRecoveryBusy(true);
+    setStagedReview(null);
+    try {
+      const response = await fetch("/api/admin/staged-recovery", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: selectedMonth, year: selectedYear }),
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "ตรวจสอบข้อมูลค้างไม่สำเร็จ");
+      setStagedReview(data as StagedReview);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "ตรวจสอบข้อมูลค้างไม่สำเร็จ");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+  const handleDiscardStaged = async () => {
+    if (isUploading || recoveryBusy || !stagedReview ||
+        stagedReview.month !== selectedMonth || stagedReview.year !== selectedYear ||
+        stagedReview.published || !stagedReview.snapshot ||
+        stagedReview.stagedCount < 1 || stagedReview.stagedCount > 500) return;
+    const { month, year, stagedCount, snapshot } = stagedReview;
+    const confirmation = `ลบสลิปค้าง ${month} ${year}`;
+    const typed = window.prompt(
+      `การดำเนินการนี้ลบสลิปที่ยังไม่เผยแพร่ ${stagedCount} รายการอย่างถาวร ไม่ใช่การลบเดือนที่เผยแพร่แล้ว กรุณาตรวจสอบสำเนาสำรองก่อนดำเนินการ\nพิมพ์ข้อความต่อไปนี้เพื่อยืนยัน:\n${confirmation}`
+    );
+    if (typed !== confirmation) return;
+    setRecoveryBusy(true);
+    try {
+      const response = await fetch("/api/admin/staged-recovery", {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month, year, expectedCount: stagedCount, snapshot, confirmation }),
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "ล้างสลิปค้างไม่สำเร็จ");
+      setStagedReview(null);
+      alert(`ล้างสลิปที่ยังไม่เผยแพร่ ${data.deleted} รายการแล้ว กรุณาตรวจสอบก่อนอัปโหลดใหม่`);
+    } catch (error) {
+      setStagedReview(null);
+      alert(error instanceof Error ? error.message : "การกู้คืนไม่สำเร็จ โปรดตรวจสอบใหม่");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
   const handleDelete = async (id: string, storagePath: string, month: string, year: string) => {
     if (!confirm(`คุณต้องการลบข้อมูลสลิปเดือน ${month} ${year} ใช่หรือไม่? (ข้อมูลสลิปย่อยจะถูกลบทั้งหมด)`)) return;
     const response = await fetch("/api/admin/history", {
@@ -345,7 +405,7 @@ export default function AdminPage() {
                     <select 
                       className="glass-input w-full bg-white"
                       value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
+                      onChange={(e) => { setSelectedMonth(e.target.value); setStagedReview(null); }}
                     >
                       {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
@@ -355,7 +415,7 @@ export default function AdminPage() {
                     <select 
                       className="glass-input w-full bg-white"
                       value={selectedYear}
-                      onChange={(e) => setSelectedYear(e.target.value)}
+                      onChange={(e) => { setSelectedYear(e.target.value); setStagedReview(null); }}
                     >
                       {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
@@ -439,6 +499,47 @@ export default function AdminPage() {
                   )}
                 </button>
               </form>
+              <div className="border-t border-slate-200 mt-6 pt-5 space-y-3">
+                <p className="text-sm font-medium text-slate-700">ตรวจสอบสลิปที่อัปโหลดค้าง</p>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  ตรวจสอบเฉพาะเดือนและปีที่เลือก ระบบจะไม่ลบข้อมูลโดยอัตโนมัติ
+                </p>
+                <button type="button" onClick={handleInspectStaged}
+                  disabled={recoveryBusy || isUploading}
+                  className="w-full px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 text-sm text-slate-700">
+                  {recoveryBusy ? "กำลังตรวจสอบ..." : "ตรวจสอบข้อมูลอัปโหลดค้าง"}
+                </button>
+                {stagedReview &&
+                  stagedReview.month === selectedMonth && stagedReview.year === selectedYear && (
+                  <div className="rounded-lg border border-slate-200 p-3 bg-slate-50 space-y-2">
+                    <p className="text-sm text-slate-700">
+                      {stagedReview.published
+                        ? "เดือนนี้เผยแพร่แล้ว ไม่อนุญาตให้ใช้วิธีกู้คืนสลิปค้าง"
+                        : stagedReview.stagedCount === 0
+                        ? "ไม่พบข้อมูลอัปโหลดค้างในเดือนนี้"
+                        : `พบสลิปที่ยังไม่เผยแพร่ ${stagedReview.stagedCount} รายการ`}
+                    </p>
+                    {!stagedReview.published && stagedReview.stagedCount > 0 &&
+                      stagedReview.stagedCount <= 500 && stagedReview.snapshot && (
+                      <>
+                        <p className="text-xs text-rose-700">
+                          ลบเฉพาะข้อมูลค้างที่ยังไม่เผยแพร่ และลบอย่างถาวร ต้องตรวจสอบสำเนาสำรองก่อน
+                        </p>
+                        <button type="button" onClick={handleDiscardStaged}
+                          disabled={recoveryBusy || isUploading}
+                          className="w-full px-4 py-2 rounded-lg bg-rose-50 text-rose-800 border border-rose-300 hover:bg-rose-100 disabled:opacity-50 text-sm">
+                          ยืนยันการล้างสลิปค้าง (ต้องพิมพ์ยืนยันอีกครั้ง)
+                        </button>
+                      </>
+                    )}
+                    {!stagedReview.published && stagedReview.stagedCount > 500 && (
+                      <p className="text-xs text-rose-700">
+                        พบข้อมูลเกิน 500 รายการ ไม่อนุญาตให้ล้างผ่านหน้าเว็บ ต้องตรวจสอบโดยผู้ดูแลระบบ
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
