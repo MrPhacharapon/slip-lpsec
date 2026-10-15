@@ -1,11 +1,14 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin, validPeriod } from "@/lib/server/route-guards";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
+  const rejected = requireAdmin(req, true);
+  if (rejected) return rejected;
   try {
     const body = await req.json();
     const { month, year } = body;
 
-    if (!month || !year) {
+    if (!validPeriod(month, year)) {
       return NextResponse.json({ error: 'Missing month or year' }, { status: 400 });
     }
 
