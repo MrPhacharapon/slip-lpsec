@@ -29,11 +29,11 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
       - name: Synthetic ownership regression tests
-        run: node --experimental-strip-types --test tests/slip-validation.test.mjs tests/pdfjs-integration.test.mjs
+        run: node --experimental-strip-types --test tests/*.test.mjs
       - name: Type-check
         run: npx tsc --noEmit
       - name: ESLint for new validation module
-        run: npx eslint src/lib/slip-validation.ts
+        run: npx eslint src/lib/slip-validation.ts src/lib/pdfjs-compat.ts
       - name: Full-project ESLint baseline (report only)
         continue-on-error: true
         run: npm run lint
