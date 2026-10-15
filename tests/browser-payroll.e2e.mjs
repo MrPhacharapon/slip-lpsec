@@ -8,6 +8,7 @@ import { chromium } from "playwright";
 import { PDFDocument } from "pdf-lib";
 import { spawn, execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
+import { startMockSupabase, setMockState } from "./mock-supabase-server.mjs";
 
 const base = "http://127.0.0.1:3100";
 const persons = [
@@ -33,7 +34,13 @@ const until = async (predicate, hint, limitMs = 45000) => {
 
 async function startServer() {
   const server = spawn("npm", ["run", "start", "--", "-p", "3100"], {
-    env: { ...process.env, NODE_ENV: "production" },
+    env: { ...process.env, NODE_ENV: "production",
+      SUPABASE_URL: "http://127.0.0.1:3200",
+      SUPABASE_SERVICE_ROLE_KEY: "synthetic-service-role-key-do-not-use",
+      APP_ORIGIN: base,
+      ADMIN_PASSWORD: "synthetic-admin-password-do-not-use",
+      ADMIN_SESSION_SECRET: "only-used-for-test-never-ship-this-key-0123456789",
+    },
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
   });
@@ -77,48 +84,23 @@ async function makeSandboxContext(browser, state, personnel = persons) {
     ["ชื่อและนามสกุล", "ตำแหน่ง", "เลขบัญชี", "รายการรายรับ (เลขตำแหน่ง)"],
     ...personnel.map(p => [p.name, "ครู", p.account, p.position]),
   ].map(r => r.join(",")).join("\r\n");
+  setMockState(state);
   const context = await browser.newContext({ acceptDownloads: true });
-  await context.addInitScript(() => { sessionStorage.setItem("adminAuth", "true"); });
   await context.route(/https:\/\/(example\.supabase\.co|docs\.google\.com)\//, async route => {
     const request = route.request();
-    const url = new URL(request.url());
-    if (request.method() === "OPTIONS") {
-      return route.fulfill({ status: 204, headers });
-    }
-    if (url.hostname === "docs.google.com") {
-      return route.fulfill({
-        status: 200,
+    if (new URL(request.url()).hostname === "docs.google.com") {
+      if (request.method() === "OPTIONS")
+        return route.fulfill({ status: 204, headers });
+      return route.fulfill({ status: 200,
         headers: { ...headers, "content-type": "text/csv;charset=utf-8" },
-        body: rosterCsv,
-      });
+        body: rosterCsv });
     }
-    if (url.pathname.includes("/rest/v1/slips")) {
-      if (request.method() === "POST") {
-        const rows = JSON.parse(request.postData() || "[]");
-        assert.ok(Array.isArray(rows), "insert is a batch of rows");
-        state.rows.push(...rows);
-        return route.fulfill({ status: 201, headers, body: "[]" });
-      }
-      const accountFilter = url.searchParams.get("bank_account");
-      const monthFilter = url.searchParams.get("month");
-      const yearFilter = url.searchParams.get("year");
-      let selected = state.rows.filter(row =>
-        (!accountFilter || row.bank_account === accountFilter.replace(/^eq\./, "")) &&
-        (!monthFilter || row.month === monthFilter.replace(/^eq\./, "")) &&
-        (!yearFilter || row.year === yearFilter.replace(/^eq\./, "")));
-      if (url.searchParams.has("limit")) selected = selected.slice(0, Number(url.searchParams.get("limit")));
-      return route.fulfill({ status: 200, headers, body: JSON.stringify(selected) });
-    }
-    if (url.pathname.includes("/rest/v1/upload_history")) {
-      if (request.method() === "POST") {
-        const row = JSON.parse(request.postData() || "{}");
-        state.history.push({ ...row, id: String(state.history.length + 1), created_at: new Date().toISOString() });
-        return route.fulfill({ status: 201, headers, body: "[]" });
-      }
-      return route.fulfill({ status: 200, headers, body: JSON.stringify(state.history) });
-    }
-    throw new Error("Unexpected external mock request " + request.method() + " " + url.pathname);
+    throw new Error("Browser attempted direct Supabase access");
   });
+  const login = await context.request.post(base + "/api/auth", {
+    headers: { Origin: base }, data: { password: "synthetic-admin-password-do-not-use" },
+  });
+  assert.equal(login.status(), 200, "admin signed cookie is established");
   return context;
 }
 
@@ -194,7 +176,10 @@ async function checkStaffSearch(context, account, name) {
 }
 
 async function main() {
-  const server = await startServer();
+  const fakeSupabase = await startMockSupabase();
+  let server;
+  try { server = await startServer(); }
+  catch (error) { await new Promise(resolve => fakeSupabase.close(resolve)); throw error; }
   let browser;
   try {
     browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
@@ -351,6 +336,7 @@ async function main() {
   } finally {
     if (browser) await browser.close();
     process.kill(-server.pid, "SIGTERM");
+    await new Promise(resolve => fakeSupabase.close(resolve));
   }
 }
 
