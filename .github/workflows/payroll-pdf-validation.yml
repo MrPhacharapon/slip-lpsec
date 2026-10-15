@@ -22,6 +22,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      # No production credentials, deploy command, or data access.
       - name: Install locked dependencies
         run: npm ci
       - name: Synthetic ownership regression tests
