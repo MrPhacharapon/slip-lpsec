@@ -15,11 +15,6 @@ const persons = [
   { name: "นางสาวทดลอง สอง", account: "0987654321", position: "0000002" },
   { name: "นางสาวทดลอง สาม", account: "1112223334", position: "0000003" },
 ];
-const csv = [
-  ["ชื่อและนามสกุล", "ตำแหน่ง", "เลขบัญชี", "รายการรายรับ (เลขตำแหน่ง)"],
-  ...persons.map(p => [p.name, "ครู", p.account, p.position]),
-].map(r => r.join(",")).join("\r\n");
-
 const headers = {
   "content-type": "application/json; charset=utf-8",
   "access-control-allow-origin": "*",
@@ -77,7 +72,11 @@ async function printablePdf(_browser, layout, rosterPeople, wrongPosition = fals
   return buffer;
 }
 
-async function makeSandboxContext(browser, state) {
+async function makeSandboxContext(browser, state, personnel = persons) {
+  const rosterCsv = [
+    ["ชื่อและนามสกุล", "ตำแหน่ง", "เลขบัญชี", "รายการรายรับ (เลขตำแหน่ง)"],
+    ...personnel.map(p => [p.name, "ครู", p.account, p.position]),
+  ].map(r => r.join(",")).join("\r\n");
   const context = await browser.newContext({ acceptDownloads: true });
   await context.addInitScript(() => { sessionStorage.setItem("adminAuth", "true"); });
   await context.route(/https:\/\/(example\.supabase\.co|docs\.google\.com)\//, async route => {
@@ -90,7 +89,7 @@ async function makeSandboxContext(browser, state) {
       return route.fulfill({
         status: 200,
         headers: { ...headers, "content-type": "text/csv;charset=utf-8" },
-        body: csv,
+        body: rosterCsv,
       });
     }
     if (url.pathname.includes("/rest/v1/slips")) {
@@ -146,9 +145,9 @@ async function submitOnAdmin(context, pdf, month = "กันยายน") {
   return { page, messages, errors };
 }
 
-async function awaitUploadSuccess(page, messages, errors) {
+async function awaitUploadSuccess(page, messages, errors, timeoutMs = 15000) {
   try {
-    await page.getByText("อัปโหลดสำเร็จ!").waitFor({ timeout: 15000 });
+    await page.getByText("อัปโหลดสำเร็จ!").waitFor({ timeout: timeoutMs });
   } catch (error) {
     const visible = (await page.locator("body").innerText()).slice(-500);
     throw new Error("Expected upload success, alerts=" + JSON.stringify(messages) +
@@ -319,6 +318,33 @@ async function main() {
         assert.equal(state.history.length, 0);
         await page.close();
         console.log("PASS negative: existing period is not overwritten or deleted.");
+      } finally { await context.close(); }
+    }
+
+
+    // Capacity regression: 39 fictitious staff -> 20 pages, last with one.
+    // This is a browser-only benchmark, not a production performance claim.
+    {
+      const glyphs = [..."กขคฆงจฉชซญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ"];
+      const large = Array.from({ length: 39 }, (_, i) => ({
+        name: "นายทดสอบ " + glyphs[Math.floor(i / glyphs.length)] + glyphs[i % glyphs.length],
+        account: String(7000000000 + i),
+        position: String(1000000 + i),
+      }));
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state, large);
+      try {
+        const pdf = await printablePdf(browser, "B", large);
+        const start = Date.now();
+        const {page,messages,errors} = await submitOnAdmin(context, pdf, "ตุลาคม");
+        await awaitUploadSuccess(page, messages, errors, 150000);
+        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+        assert.equal(state.rows.length, 39, "all fictitious owners must be stored");
+        assert.equal(state.history.length, 1);
+        assert.equal(new Set(state.rows.map(x => x.bank_account)).size, 39);
+        assert.ok(state.rows.every(x => x.pdf_base64?.length > 1000));
+        console.log("PASS volume: 39 synthetic slips / 20 pages processed in " + elapsed + " seconds on CI runner.");
+        await page.close();
       } finally { await context.close(); }
     }
 
