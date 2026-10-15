@@ -148,7 +148,7 @@ async function submitOnAdmin(context, pdf, month = "กันยายน") {
 
 async function awaitUploadSuccess(page, messages, errors) {
   try {
-    await page.getByText("อัปโหลดสำเร็จ!").waitFor({ timeout: 25000 });
+    await page.getByText("อัปโหลดสำเร็จ!").waitFor({ timeout: 15000 });
   } catch (error) {
     const visible = (await page.locator("body").innerText()).slice(-500);
     throw new Error("Expected upload success, alerts=" + JSON.stringify(messages) +
