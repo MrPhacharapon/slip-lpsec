@@ -113,7 +113,9 @@ export default function Home() {
         body: JSON.stringify({ bankAccount: bankAccount.trim() }), cache: 'no-store',
       });
       if (!response.ok) throw new Error('ไม่สามารถค้นหาสลิปได้');
-      const { results: data, employee } = await response.json();
+      const payload = await response.json();
+      const data = payload.results as Array<{month: string; year: string; name?: string}>;
+      const employee = payload.employee as {name: string; position: string} | null;
       
       // Filter by the selected range
       // For simplicity, we just return what matches exactly or within range
