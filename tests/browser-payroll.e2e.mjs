@@ -171,6 +171,10 @@ async function checkStaffSearch(browser, account, name) {
   try {
     await staff.goto(base, { waitUntil: "domcontentloaded" });
     await staff.getByRole("button", { name: "ค้นหาใบรับรองการจ่ายเงินเดือน" }).waitFor();
+    // The user confirmed bank-account-only staff lookup (no login or OTP).
+    assert.equal(await staff.locator('input[autocomplete="one-time-code"], input[name="otp"], input[placeholder*="OTP"]').count(), 0,
+      "staff lookup must not introduce an OTP field");
+
     await staff.locator('input[placeholder="กรอกเลขบัญชี (ไม่ต้องมีขีด)"]').fill(account);
     await staff.getByRole("button", { name: "ค้นหาใบรับรองการจ่ายเงินเดือน" }).click();
     try {
