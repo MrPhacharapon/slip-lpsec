@@ -37,16 +37,33 @@ pdf.setTitle("SYNTHETIC TEST ONLY")
 groups = ([[p] for p in people] if layout == "A"
           else [people[i:i+2] for i in range(0, len(people), 2)])
 
+def draw_segments(y, parts):
+    x = 25
+    for font, segment in parts:
+        pdf.setFont(font, 14)
+        pdf.drawString(x, y, segment)
+        x += pdfmetrics.stringWidth(segment, font, 14) + 1
+
 def draw_slip(person, slot, position):
     top_offset = 396 * slot
-    pdf.setFont("FixtureThai", 14)
-    pdf.drawString(25, 770-top_offset,
-        "ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน กันยายน ปี พ.ศ. 2569")
-    pdf.drawString(25, 742-top_offset, "ชื่อ -นามสกุล " + person["name"])
-    pdf.drawString(25, 714-top_offset,
-        "รายการรายรับ เลขตำแหน่ง " + position +
-        " โอนเงินเข้า ธนาคารกรุงไทย จำกัด(มหาชน) เลขที่บัญชี " + person["account"])
-    pdf.drawString(25, 665-top_offset, "เงินเดือนและรายการรายรับ 99999.99")
+    draw_segments(770-top_offset, [
+        ("FixtureThai",
+         "ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน กันยายน ปี พ.ศ. "),
+        ("Helvetica", "2569")
+    ])
+    draw_segments(742-top_offset, [
+        ("FixtureThai", "ชื่อ -นามสกุล " + person["name"])
+    ])
+    draw_segments(714-top_offset, [
+        ("FixtureThai", "รายการรายรับ เลขตำแหน่ง "),
+        ("Helvetica", position),
+        ("FixtureThai", " โอนเงินเข้า ธนาคารกรุงไทย จำกัด(มหาชน) เลขที่บัญชี "),
+        ("Helvetica", person["account"])
+    ])
+    draw_segments(665-top_offset, [
+        ("FixtureThai", "เงินเดือนและรายการรายรับ "),
+        ("Helvetica", "99999.99")
+    ])
 
 for page_index, group in enumerate(groups):
     for slot, person in enumerate(group):
