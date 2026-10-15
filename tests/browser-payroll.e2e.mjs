@@ -170,7 +170,18 @@ async function checkStaffSearch(context, account, name) {
     await staff.getByRole("button", { name: "ค้นหาใบรับรองการจ่ายเงินเดือน" }).waitFor();
     await staff.locator('input[placeholder="กรอกเลขบัญชี (ไม่ต้องมีขีด)"]').fill(account);
     await staff.getByRole("button", { name: "ค้นหาใบรับรองการจ่ายเงินเดือน" }).click();
-    await staff.getByText("ผลการค้นหา (1 รายการ)").waitFor({ timeout: 15000 });
+    try {
+      await staff.getByText("ผลการค้นหา (1 รายการ)").waitFor({ timeout: 15000 });
+    } catch (error) {
+      const screen = (await staff.locator("body").innerText()).slice(-800);
+      const direct = await context.request.post(base + "/api/payroll/search", {
+        headers: { Origin: base }, data: { bankAccount: account },
+      });
+      const body = await direct.text();
+      throw new Error("staff lookup failed, screen=" + screen +
+        "; API status=" + direct.status() + "; API results=" + body.slice(0,700) +
+        "; underlying=" + String(error));
+    }
     await staff.getByText(name, { exact: true }).waitFor({ timeout: 15000 });
   } finally { await staff.close(); }
 }
