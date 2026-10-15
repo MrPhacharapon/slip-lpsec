@@ -40,6 +40,7 @@ async function startServer() {
       APP_ORIGIN: base,
       ADMIN_PASSWORD: "synthetic-admin-password-do-not-use",
       ADMIN_SESSION_SECRET: "only-used-for-test-never-ship-this-key-0123456789",
+      PAYROLL_RATE_LIMIT_SECRET: "synthetic-rate-limit-key-for-CI-not-production-2026",
       STAFF_DIRECTORY_DISABLED: "true",
     },
     stdio: ["ignore", "pipe", "pipe"],
