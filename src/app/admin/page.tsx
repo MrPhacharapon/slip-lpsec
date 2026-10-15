@@ -267,7 +267,6 @@ export default function AdminPage() {
 
   const handleLogout = async () => {
     await fetch("/api/auth", { method: "DELETE" }).catch(() => {});
-    sessionStorage.removeItem("adminAuth");
     router.push("/");
   };
 
