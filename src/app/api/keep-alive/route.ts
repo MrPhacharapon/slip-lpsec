@@ -1,24 +1,14 @@
-import { NextResponse } from 'next/server';
-import { supabase } from '@/lib/supabase';
-
-export const dynamic = 'force-dynamic';
-
-export async function GET() {
+import { NextRequest } from "next/server";
+import { payrollDb } from "@/lib/server/payroll-db";
+import { reply } from "@/lib/server/route-guards";
+export const dynamic = "force-dynamic";
+export async function GET(req: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.get("authorization") !== "Bearer " + secret)
+    return reply({ error: "ไม่ได้รับอนุญาต" }, 401);
   try {
-    // Ping the upload_history table to keep the database awake
-    const { data, error } = await supabase.from('upload_history').select('id').limit(1);
-
-    if (error) {
-      console.error('Keep-alive ping failed:', error);
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ 
-      success: true, 
-      message: 'Supabase pinged successfully to prevent pausing.',
-      time: new Date().toISOString()
-    });
-  } catch (error: any) {
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
-  }
+    const result = await payrollDb().from("upload_history").select("id").limit(1);
+    if (result.error) throw result.error;
+    return reply({ success: true });
+  } catch { return reply({ success: false }, 503); }
 }
