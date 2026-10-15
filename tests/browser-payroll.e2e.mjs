@@ -257,6 +257,44 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // Distributed-style rate limiting applies without a staff login or OTP.
+    {
+      setMockState({ rows: [], history: [] });
+      const visitor = await browser.newContext();
+      try {
+        for (let attempt = 1; attempt <= 20; attempt++) {
+          const response = await visitor.request.post(base + "/api/payroll/search", {
+            headers: { Origin: base }, data: { bankAccount: "9000000123" },
+          });
+          assert.equal(response.status(), 200, "first 20 same-account searches are permitted");
+        }
+        const excess = await visitor.request.post(base + "/api/payroll/search", {
+          headers: { Origin: base }, data: { bankAccount: "9000000123" },
+        });
+        assert.equal(excess.status(), 429, "21st search for one bank account is throttled");
+        assert.equal(excess.headers()["retry-after"], "600");
+        console.log("PASS anonymous staff search rate limiting: 429 after per-account quota.");
+      } finally { await visitor.close(); }
+    }
+    // Wrong admin password attempts are throttled even with a valid Origin.
+    {
+      setMockState({ rows: [], history: [] });
+      const visitor = await browser.newContext();
+      try {
+        for (let attempt = 1; attempt <= 40; attempt++) {
+          const response = await visitor.request.post(base + "/api/auth", {
+            headers: { Origin: base }, data: { password: "wrong-synthetic-password" },
+          });
+          assert.equal(response.status(), 401, "invalid admin passwords rejected before quota");
+        }
+        const excess = await visitor.request.post(base + "/api/auth", {
+          headers: { Origin: base }, data: { password: "wrong-synthetic-password" },
+        });
+        assert.equal(excess.status(), 429, "repeated invalid login attempts are throttled");
+        console.log("PASS admin password rate limiting: 429 after per-IP quota.");
+      } finally { await visitor.close(); }
+    }
+
     // A: traditional single slip, upload + retrieval.
     {
       const state = { rows: [], history: [] };
