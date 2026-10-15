@@ -18,7 +18,7 @@ data = json.load(sys.stdin)
 people = data["people"]
 layout = data["layout"]
 assert layout in ("A", "B")
-assert len(people) <= 20 and len(people) >= 1
+assert len(people) <= 50 and len(people) >= 1
 for p in people:
     assert len(p["account"]) == 10 and p["account"].isdigit()
     assert len(p["position"]) == 7 and p["position"].isdigit()
