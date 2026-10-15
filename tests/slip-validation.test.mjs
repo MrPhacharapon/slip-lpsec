@@ -41,3 +41,12 @@ test('duplicate account across source pages fails',()=>{
   const item=identifyPageSlips([top],842,roster)[0];
   assert.throws(()=>assertUniquePeriod([item,item]),SlipValidationError);
 });
+
+test('reject another roster person's name even when OCR misses their bank account and heading',()=>{
+  const secondLine={str:'นางสาวตัวอย่าง สอง',y:180};
+  assert.throws(()=>identifyPageSlips([top,secondLine],842,roster),SlipValidationError);
+});
+test('reject if another roster name is embedded within the same detected half',()=>{
+  const ambiguous={str:heading+'นายตัวอย่าง หนึ่ง เลขที่บัญชี 1234567890 และ นางสาวตัวอย่าง สอง',y:650};
+  assert.throws(()=>identifyPageSlips([ambiguous],842,roster),SlipValidationError);
+});
