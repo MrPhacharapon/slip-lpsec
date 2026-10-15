@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
 import { PDFDocument } from "pdf-lib";
-import { spawn } from "node:child_process";
+import { spawn, execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const base = "http://127.0.0.1:3100";
@@ -57,61 +57,24 @@ async function startServer() {
   throw new Error("Next server did not start: " + lastLog);
 }
 
-function slipHtml(person, topPt = 0, printedPosition = person.position) {
-  // Use exactly the Thai headings present on the actual PDF template.
-  return [
-    '<section style="position:absolute;top:', String(topPt + 10),
-    'pt;left:30pt;width:1000pt;font-size:15pt;line-height:26pt">',
-    '<div>ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน กันยายน ปี พ.ศ. 2569</div>',
-    '<div>ชื่อ -นามสกุล ', person.name, '</div>',
-    '<div>รายการรายรับ เลขตำแหน่ง ', printedPosition,
-    ' โอนเงินเข้า ธนาคารกรุงไทย จำกัด(มหาชน) เลขที่บัญชี ', person.account, '</div>',
-    '<div>เงินเดือนและรายการรายรับ 99999.99</div>',
-    '</section>',
-  ].join("");
-}
-
-async function printablePdf(browser, layout, rosterPeople, wrongPosition = false) {
-  let groups;
-  if (layout === "A") {
-    groups = rosterPeople.map(p => [p]);
-  } else {
-    groups = [];
-    for (let i = 0; i < rosterPeople.length; i += 2) groups.push(rosterPeople.slice(i, i + 2));
+async function printablePdf(_browser, layout, rosterPeople, wrongPosition = false) {
+  const buffer = execFileSync("python3", ["tests/generate-synthetic-payroll.py"], {
+    input: JSON.stringify({ layout, people: rosterPeople, wrongPosition }),
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  const doc = await PDFDocument.load(buffer);
+  const expectedPages = layout === "A" ? rosterPeople.length : Math.ceil(rosterPeople.length / 2);
+  assert.equal(doc.getPageCount(), expectedPages, "synthetic PDF page count");
+  if (rosterPeople.length === 1 && !wrongPosition) {
+    const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const job = pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true });
+    const raw = await job.promise;
+    const extracted = await (await raw.getPage(1)).getTextContent();
+    console.log("Synthetic-only PDF.js text spans:",
+      JSON.stringify(extracted.items.filter(i => "str" in i).map(i => i.str).slice(0,25)));
+    await job.destroy();
   }
-  const sheets = groups.map((group, index) => {
-    const content = group.map((person, sub) => slipHtml(person, sub * 396,
-      wrongPosition && index === 0 && sub === 0 ? "9999999" : person.position)).join("");
-    return '<article class="sheet">' + content + '</article>';
-  }).join("");
-  const page = await browser.newPage();
-  try {
-    await page.setContent([
-      '<html lang="th"><meta charset="utf-8"><style>',
-      '@page { size: 1071pt 792pt; margin:0; }',
-      'html,body { margin:0; padding:0; font-family:"Noto Sans Thai","Loma",sans-serif; }',
-      '.sheet { width:1071pt; height:792pt; position:relative; break-after:page; }',
-      '.sheet:last-child { break-after:auto; }',
-      '</style><body>', sheets, '</body></html>',
-    ].join(""));
-    await page.evaluate(() => document.fonts.ready);
-    const buffer = await page.pdf({
-      width: "14.875in", height: "11in", printBackground: true,
-      preferCSSPageSize: true, margin: { top: "0", bottom: "0", left: "0", right: "0" },
-    });
-    const file = await PDFDocument.load(buffer);
-    assert.equal(file.getPageCount(), groups.length, "synthetic PDF has correct page count");
-    if (rosterPeople.length === 1 && !wrongPosition) {
-      const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-      const job = pdfjs.getDocument({ data: new Uint8Array(buffer), useSystemFonts: true });
-      const raw = await job.promise;
-      const extracted = await (await raw.getPage(1)).getTextContent();
-      console.log("Synthetic-only PDF.js text spans:",
-        JSON.stringify(extracted.items.filter(i => "str" in i).map(i => i.str).slice(0,35)));
-      await job.destroy();
-    }
-    return buffer;
-  } finally { await page.close(); }
+  return buffer;
 }
 
 async function makeSandboxContext(browser, state) {
