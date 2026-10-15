@@ -29,12 +29,59 @@ export async function startMockSupabase() {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const table = url.pathname === "/rest/v1/slips" ? "rows" :
       url.pathname === "/rest/v1/upload_history" ? "history" : null;
-    if (!table && url.pathname !== "/rest/v1/rpc/check_payroll_rate_limit") {
+    const isPayrollRpc = [
+      "/rest/v1/rpc/stage_payroll_slips",
+      "/rest/v1/rpc/publish_payroll_period",
+    ].includes(url.pathname);
+    if (!table && !isPayrollRpc && url.pathname !== "/rest/v1/rpc/check_payroll_rate_limit") {
       res.writeHead(404); res.end("{}"); return;
     }
     let payload = "";
     for await (const chunk of req) payload += chunk.toString();
     const headers = { "Content-Type": "application/json; charset=utf-8", "Content-Range": "*/*" };
+    if (isPayrollRpc) {
+      const fail = (status, code, message) => {
+        res.writeHead(status, headers);
+        res.end(JSON.stringify({ code, message }));
+      };
+      if (req.method !== "POST") { fail(405, "405", "POST required"); return; }
+      try {
+        const args = JSON.parse(payload);
+        const month = args.p_month, year = args.p_year;
+        const exists = current.history.some(r => r.month === month && r.year === year);
+        if (exists) { fail(409, "23505", "period published"); return; }
+        if (url.pathname.endsWith("/stage_payroll_slips")) {
+          const rows = args.p_rows;
+          if (!Array.isArray(rows) || rows.length < 1 || rows.length > 8 ||
+              rows.some(r => r.month !== month || r.year !== year || !/^\d{10}$/.test(r.bank_account))) {
+            fail(400, "22023", "invalid rows"); return;
+          }
+          const keys = new Set(current.rows.map(r => r.bank_account + ":" + r.month + ":" + r.year));
+          if (rows.some(r => keys.has(r.bank_account + ":" + month + ":" + year)) ||
+              new Set(rows.map(r => r.bank_account)).size !== rows.length) {
+            fail(409, "23505", "duplicate person"); return;
+          }
+          for (const row of rows) current.rows.push({ ...row, id: String(current.rows.length + 1) });
+          res.writeHead(200, headers); res.end(JSON.stringify(rows.length));
+        } else {
+          const count = args.p_expected_count;
+          const rows = current.rows.filter(r => r.month === month && r.year === year);
+          if (!Number.isInteger(count) || count < 1 || count > 500 ||
+              rows.length !== count || new Set(rows.map(r => r.bank_account)).size !== count) {
+            fail(400, "22023", "count mismatch"); return;
+          }
+          current.history.push({
+            id: String(current.history.length + 1),
+            month, year, file_name: args.p_file_name, storage_path: null,
+            created_at: new Date().toISOString(),
+          });
+          res.writeHead(200, headers); res.end("true");
+        }
+      } catch (error) {
+        fail(500, "MOCK_RPC_ERROR", String(error));
+      }
+      return;
+    }
     if (url.pathname === "/rest/v1/rpc/check_payroll_rate_limit") {
       if (current.rateLimiterUnavailable) {
         res.writeHead(503, headers);
