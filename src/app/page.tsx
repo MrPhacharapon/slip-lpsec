@@ -158,28 +158,7 @@ export default function Home() {
       setResults(filteredData);
       setEmployeeData(employee);
 
-      /* Fetch employee info from Google Sheets
-      try {
-        const sheetUrl = "https://docs.google.com/spreadsheets/d/1warnAj4x4d7lZecJ3vApaGltSxx1Ji_wv2CkOhcF0nI/export?format=csv&gid=0";
-        const res = await fetch(sheetUrl);
-        const csvText = await res.text();
-        
-        Papa.parse(csvText, {
-          complete: (parsed: any) => {
-            const rows = parsed.data;
-            // Find row where Col 2 (index 2) == bankAccount
-            const matchedRow = rows.find((row: any) => row[2] && row[2].toString().trim() === bankAccount.trim());
-            if (matchedRow) {
-              setEmployeeData({
-                name: matchedRow[0],
-                position: matchedRow[1]
-              });
-            }
-          }
-        });
-      } catch (err) {
-        console.error("Failed to fetch sheet", err);
-      } */
+
 
     } catch (error) {
       console.error("Search error:", error);
