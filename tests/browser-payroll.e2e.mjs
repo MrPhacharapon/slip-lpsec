@@ -163,7 +163,9 @@ async function checkStoredImageOnlyPDF(row, expectedHeight) {
   } finally { await loading.destroy(); }
 }
 
-async function checkStaffSearch(context, account, name) {
+async function checkStaffSearch(browser, account, name) {
+  // Staff must work in a fresh context with no admin cookie.
+  const context = await browser.newContext();
   const staff = await context.newPage();
   try {
     await staff.goto(base, { waitUntil: "domcontentloaded" });
@@ -183,7 +185,13 @@ async function checkStaffSearch(context, account, name) {
         "; underlying=" + String(error));
     }
     await staff.getByText(name, { exact: true }).waitFor({ timeout: 15000 });
-  } finally { await staff.close(); }
+    const pdf = await context.request.post(base + "/api/payroll/pdf", {
+      headers: { Origin: base },
+      data: { bankAccount: account, month: "มกราคม", year: "2569" },
+    });
+    if (await staff.getByText("ใบรับรองการจ่ายเงินเดือน ประจำเดือน มกราคม").count())
+      assert.equal(pdf.status(), 200, "anonymous staff can retrieve only own selected PDF");
+  } finally { await context.close(); }
 }
 
 async function main() {
@@ -195,6 +203,16 @@ async function main() {
   try {
     browser = await chromium.launch({ headless: true, args: ["--no-sandbox"] });
     console.log("Browser test uses localhost and fully mocked external services.");
+    const visitor = await browser.newContext();
+    try {
+      const forbidden = await visitor.request.get(base + "/api/admin/history");
+      assert.equal(forbidden.status(), 401, "unauthenticated staff cannot list admin history");
+      const forbiddenMutation = await visitor.request.post(base + "/api/admin/preflight", {
+        headers: { Origin: base }, data: { month: "ตุลาคม", year: "2569" },
+      });
+      assert.equal(forbiddenMutation.status(), 401, "unauthenticated staff cannot reach admin writes");
+    } finally { await visitor.close(); }
+
 
     // A: traditional single slip, upload + retrieval.
     {
@@ -208,7 +226,7 @@ async function main() {
         assert.equal(state.rows.length, 1);
         assert.equal(state.rows[0].bank_account, persons[0].account);
         await checkStoredImageOnlyPDF(state.rows[0], 792);
-        await checkStaffSearch(context, persons[0].account, persons[0].name);
+        await checkStaffSearch(browser, persons[0].account, persons[0].name);
         await page.close();
         console.log("PASS A: admin upload -> 1 PDF -> staff account lookup.");
       } finally { await context.close(); }
@@ -227,7 +245,7 @@ async function main() {
         assert.deepEqual(state.rows.map(x => x.bank_account), persons.slice(0, 2).map(x => x.account));
         assert.notEqual(state.rows[0].pdf_base64, state.rows[1].pdf_base64);
         for (const row of state.rows) await checkStoredImageOnlyPDF(row, 396);
-        await checkStaffSearch(context, persons[1].account, persons[1].name);
+        await checkStaffSearch(browser, persons[1].account, persons[1].name);
         await page.close();
         console.log("PASS B: 2 people on same page -> separate half-page PDFs -> lookup.");
       } finally { await context.close(); }
