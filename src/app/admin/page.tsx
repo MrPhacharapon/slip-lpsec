@@ -68,7 +68,9 @@ export default function AdminPage() {
         if (!active) return;
         if (!v.authenticated) { setIsAuthenticated(false); router.push("/"); return; }
         setIsMounted(true); setIsAuthenticated(true);
-        void fetchHistory();
+        void fetchHistory().catch(() => {
+          if (active) alert("ไม่สามารถโหลดประวัติสลิปได้ กรุณารีเฟรชหน้าจอแล้วตรวจสอบอีกครั้ง");
+        });
       }).catch(() => { if (active) { setIsAuthenticated(false); router.push("/"); } });
     return () => { active = false; };
   }, [router, fetchHistory]);
