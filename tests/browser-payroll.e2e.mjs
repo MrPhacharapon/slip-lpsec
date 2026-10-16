@@ -524,7 +524,15 @@ async function main() {
           });
           return { status: r.status, data: await r.json() };
         }, {id:historyId});
-        assert.equal(preview.status, 200);
+        if (preview.status !== 200) {
+          const mock = await context.request.post(
+            "http://127.0.0.1:3200/rest/v1/rpc/inspect_published_payroll_deletion", {
+              data: { p_id: historyId, p_month: "มกราคม", p_year: "2569" },
+            });
+          throw new Error("Published preview failed (synthetic only) with API=" +
+            preview.status + " " + JSON.stringify(preview.data) +
+            "; local mock=" + mock.status() + " " + (await mock.text()).slice(0,400));
+        }
         assert.equal(preview.data.eligible, true);
         assert.equal(preview.data.slipCount, 1);
         assert.match(preview.data.snapshot, /^[a-f0-9]{64}$/);
