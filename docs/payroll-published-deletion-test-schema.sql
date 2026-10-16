@@ -44,7 +44,7 @@ BEGIN
          pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
            COALESCE(pg_catalog.string_agg(
              id::text || ':' || COALESCE(bank_account,'') || ':' ||
-             pg_catalog.md5(pdf_base64), E'\n' ORDER BY bank_account, id
+             pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pdf_base64, 'UTF8')), 'hex'), E'\n' ORDER BY bank_account, id
            ), ''), 'UTF8'
          )), 'hex')
     INTO v_count, v_unique, v_snapshot
@@ -117,7 +117,7 @@ BEGIN
          pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
            COALESCE(pg_catalog.string_agg(
              id::text || ':' || COALESCE(bank_account,'') || ':' ||
-             pg_catalog.md5(pdf_base64), E'\n' ORDER BY bank_account, id
+             pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(pdf_base64, 'UTF8')), 'hex'), E'\n' ORDER BY bank_account, id
            ), ''), 'UTF8'
          )), 'hex')
     INTO v_count, v_unique, v_digest
