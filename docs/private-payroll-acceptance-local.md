@@ -37,6 +37,8 @@ node --experimental-strip-types scripts/validate-private-payroll-pdfs.mjs `
 
 ## 2. ตรวจ Next.js กับ Test-only Supabase ในเครื่องเดียวกัน
 
+ก่อนเริ่ม ให้รัน SQL แบบอ่านอย่างเดียวจาก `docs/payroll-test-readiness-readonly.sql` ผ่าน Dashboard ของ **Supabase Test เท่านั้น** และตรวจว่า `schema_ready = true`, จำนวน `slips/history/storage = 0`, รายการ `unsafe_or_missing_rpcs`, `missing_columns` และ `unsafe_tables` เป็นรายการว่าง SQL นี้รายงานเฉพาะ Metadata ไม่อ่านข้อมูลสลิปจริง หากไม่ผ่าน ให้หยุดและทบทวน Schema ก่อนส่งคำขอ API ไม่ปรับสิทธิ์ Production เพื่อให้ผ่าน
+
 ตรวจ URL ให้ตรงกับโครงการ Test เท่านั้น: `https://dpaqvxtbpaduknergflm.supabase.co` และต้องมีสิทธิ์ใช้ **Test service-role key เท่านั้น** ห้ามใช้ Production key หรือคัดลอกรหัสลับลง Repository, GitHub Actions หรือแชท
 
 ใน PowerShell ใช้การอ่านรหัสแบบปิดบัง (ค่าชั่วคราวอยู่ใน session เท่านั้น):
