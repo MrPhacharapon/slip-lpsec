@@ -359,6 +359,29 @@ try {
   const history = requireData(await db.from("upload_history").select("id")
     .eq("month",published.month).eq("year",published.year), "published history");
   assert.equal(history.length,1);
+  // Check the actual Next.js history GET/PATCH -> Test RPC path. Refuse to
+  // reorder anyone else's data; this requires an otherwise-empty Test project.
+  const beforeReorder = await call("/api/admin/history", {
+    method:"GET", admin:true,
+  });
+  assert.equal(beforeReorder.status, 200, "private history GET");
+  assert.equal(beforeReorder.data?.history?.length, 1,
+    "Test history must contain only this synthetic publication");
+  assert.equal(beforeReorder.data.history[0].id, history[0].id);
+  const originalCreatedAt = beforeReorder.data.history[0].created_at;
+  const reordered = await call("/api/admin/history", {
+    method:"PATCH", admin:true, body:{ ids:[history[0].id] },
+  });
+  assert.equal(reordered.status, 200, "atomic private history reorder RPC");
+  assert.equal(reordered.data?.success, true);
+  const afterReorder = await call("/api/admin/history", {
+    method:"GET", admin:true,
+  });
+  assert.equal(afterReorder.status, 200);
+  assert.equal(afterReorder.data?.history?.length, 1);
+  assert.equal(afterReorder.data.history[0].id, history[0].id);
+  assert.equal(afterReorder.data.history[0].created_at, originalCreatedAt,
+    "history display order must not rewrite publication audit time");
   const preview = await call("/api/admin/published-deletion", {
     admin:true,body:{ id:history[0].id,...published },
   });
