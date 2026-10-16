@@ -132,6 +132,12 @@ export function identifyPageSlips(
 
 export function assertUniquePeriod(slips: VerifiedSlip[]): void {
   if (slips.length === 0) throw new SlipValidationError("ไม่มีสลิปที่ผ่านการตรวจสอบ");
+  // The publication RPC accepts at most 500 slips per period. Reject an
+  // oversized source BEFORE rasterization or the first staged database write;
+  // otherwise upload could stage rows that can never be published.
+  if (slips.length > 500) {
+    throw new SlipValidationError("พบสลิปเกิน 500 รายการ ไม่อนุญาตให้อัปโหลดบางส่วนค้างไว้");
+  }
   const seen = new Set<string>();
   for (const slip of slips) {
     if (seen.has(slip.person.bankAccount)) {
