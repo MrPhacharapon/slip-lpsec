@@ -45,7 +45,7 @@ test("private PDF.js accepts A and B with odd last page using synthetic data", (
     writeFileSync(a, fixture("A", people));
     writeFileSync(b, fixture("B", people));
     const result = checkCli(dir, [a, b]);
-    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.status, 0, result.stdout);
     const parsed = result.stdout.trim().split(/\r?\n/).filter(l => l.startsWith("{"))
       .map(l => JSON.parse(l));
     assert.deepEqual(parsed, [
