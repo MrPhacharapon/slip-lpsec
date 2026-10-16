@@ -8,7 +8,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import type { DropResult } from '@hello-pangea/dnd';
 // @ts-expect-error - papaparse has no bundled declarations in this project
 import Papa from 'papaparse';
-import { parseRoster, identifyPageSlips, assertUniquePeriod, validateSlipPageLayout } from "@/lib/slip-validation";
+import { parseRoster, identifyPageSlips, assertUniquePeriod, assertSlipDocumentLayout, validateSlipPageLayout } from "@/lib/slip-validation";
 import { ensurePdfJsMapCompatibility } from "@/lib/pdfjs-compat";
 import type { PdfToken, RosterPerson, PageRegion } from "@/lib/slip-validation";
 
@@ -143,6 +143,7 @@ export default function AdminPage() {
 
       type Candidate = { pageIndex: number; person: RosterPerson; region: PageRegion };
       const mapped: Candidate[] = [];
+      const layouts: Array<"single" | "double"> = [];
       for (let pageIndex = 0; pageIndex < doc.numPages; pageIndex++) {
         const page = await doc.getPage(pageIndex + 1);
         if (page.rotate % 360 !== 0 || page.view[1] !== 0) {
@@ -170,6 +171,7 @@ export default function AdminPage() {
             ))) {
             throw new Error("จำนวนสลิปที่จับคู่ได้ไม่ตรงกับโครงสร้างหน้าของ PDF");
           }
+          layouts.push(layout);
           mapped.push(...identified.map(({ person, region }) =>
             ({ pageIndex, person, region })));
         } catch (error) {
@@ -177,6 +179,7 @@ export default function AdminPage() {
             (error instanceof Error ? error.message : "อ่านเลขบัญชีไม่สำเร็จ"));
         }
       }
+      assertSlipDocumentLayout(layouts);
       assertUniquePeriod(mapped);
 
       // Render selected regions into fresh raster PDFs; never retain hidden
