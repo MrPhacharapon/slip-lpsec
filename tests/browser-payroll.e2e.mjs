@@ -464,6 +464,40 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // Initial history API downtime should show a bounded UI warning, not
+    // create an unhandled promise rejection on an authenticated Admin page.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        await context.route("**/api/admin/history", async route => {
+          if (route.request().method() === "GET") {
+            return route.fulfill({
+              status: 503, contentType: "application/json",
+              body: JSON.stringify({ error: "synthetic initial-history outage" }),
+            });
+          }
+          return route.continue();
+        });
+        const page = await context.newPage();
+        const errors = [], messages = [];
+        page.on("pageerror", err => errors.push(String(err)));
+        page.on("dialog", async dialog => {
+          messages.push(dialog.message());
+          await dialog.accept();
+        });
+        await page.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await page.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
+        await until(() => messages.some(m =>
+          m.includes("ไม่สามารถโหลดประวัติสลิปได้")),
+          "initial history outage surfaces recoverable warning");
+        assert.deepEqual(errors, [], "initial history failure must not reject an unhandled promise");
+        assert.equal(state.rows.length, 0);
+        await page.close();
+        console.log("PASS initial admin history outage: warning without unhandled rejection.");
+      } finally { await context.close(); }
+    }
+
     // Publishing cannot be undone by a failure to refresh the history UI.
     // Show success and a separate refresh warning, never a retry-upload error.
     {
