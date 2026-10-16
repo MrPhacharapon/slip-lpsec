@@ -46,5 +46,7 @@ jobs:
           npx playwright install --with-deps chromium
           sudo apt-get install -y fonts-thai-tlwg fonts-noto-core
           fc-match 'Noto Sans Thai' | head -1
+      - name: Private PDF.js helper against fully fictional layouts A, B, and odd last page
+        run: node --test tests/private-payroll-pdf-fixtures.e2e.mjs
       - name: Browser E2E with mocked Sheets and Supabase
         run: node tests/browser-payroll.e2e.mjs
