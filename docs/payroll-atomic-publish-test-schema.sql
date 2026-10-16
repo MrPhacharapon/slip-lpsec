@@ -20,6 +20,7 @@ set search_path = ''
 as $fn$
 declare
   v_inserted integer;
+  v_existing integer;
 begin
   if p_month is null or p_month not in (
       'มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
@@ -54,6 +55,15 @@ begin
        or pg_catalog.length(r.pdf_base64) < 100
   ) then
     raise exception 'invalid payroll stage rows' using errcode = '22023';
+  end if;
+
+  -- Publication accepts no more than 500 total slips per period. Enforce
+  -- the SAME cap during staging, while holding the period advisory lock, so
+  -- direct API batches cannot accumulate rows that cannot be published.
+  select pg_catalog.count(*)::integer into v_existing
+  from public.slips where month = p_month and year = p_year;
+  if v_existing + pg_catalog.jsonb_array_length(p_rows) > 500 then
+    raise exception 'payroll period has too many staged slips' using errcode = '22023';
   end if;
 
   insert into public.slips(name, bank_account, month, year, pdf_base64)
