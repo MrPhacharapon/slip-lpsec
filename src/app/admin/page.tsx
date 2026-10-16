@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Lock, UploadCloud, Settings, FileText, CheckCircle2, History, Trash2, GripVertical, Eye } from "lucide-react";
 import { PDFDocument } from 'pdf-lib';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-// @ts-ignore
+import type { DropResult } from '@hello-pangea/dnd';
+// @ts-expect-error - papaparse has no bundled declarations in this project
 import Papa from 'papaparse';
 import { parseRoster, identifyPageSlips, assertUniquePeriod, validateSlipPageLayout } from "@/lib/slip-validation";
 import { ensurePdfJsMapCompatibility } from "@/lib/pdfjs-compat";
@@ -52,6 +53,13 @@ export default function AdminPage() {
   const [stagedReview, setStagedReview] = useState<StagedReview | null>(null);
   const [recoveryBusy, setRecoveryBusy] = useState(false);
 
+  const fetchHistory = useCallback(async () => {
+    const response = await fetch("/api/admin/history", { cache: "no-store" });
+    if (!response.ok) throw new Error("โหลดประวัติไม่สำเร็จ");
+    const { history } = await response.json();
+    setHistoryItems(history);
+  }, []);
+
   useEffect(() => {
     let active = true;
     fetch("/api/auth", { cache: "no-store" })
@@ -63,16 +71,9 @@ export default function AdminPage() {
         void fetchHistory();
       }).catch(() => { if (active) { setIsAuthenticated(false); router.push("/"); } });
     return () => { active = false; };
-  }, [router]);
+  }, [router, fetchHistory]);
 
-  const fetchHistory = async () => {
-    const response = await fetch("/api/admin/history", { cache: "no-store" });
-    if (!response.ok) throw new Error("โหลดประวัติไม่สำเร็จ");
-    const { history } = await response.json();
-    setHistoryItems(history);
-  };
-
-  const handleDragEnd = (result: any) => {
+  const handleDragEnd = (result: DropResult) => {
     if (!result.destination) return;
     
     const startIndex = result.source.index;
