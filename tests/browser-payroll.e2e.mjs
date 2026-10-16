@@ -232,6 +232,22 @@ async function main() {
         },
       });
       assert.equal(noDiscard.status(), 401, "unauthenticated clients cannot discard staged payroll");
+      const noPublishedPreview = await visitor.request.post(base + "/api/admin/published-deletion", {
+        headers: { Origin: base }, data: {
+          id: "22222222-2222-4222-8222-222222222222",
+          month: "มกราคม", year: "2569",
+        },
+      });
+      assert.equal(noPublishedPreview.status(), 401, "anonymous users cannot preview published deletion");
+      const noPublishedDelete = await visitor.request.delete(base + "/api/admin/published-deletion", {
+        headers: { Origin: base }, data: {
+          id: "22222222-2222-4222-8222-222222222222",
+          month: "มกราคม", year: "2569",
+          expectedCount: 1, snapshot: "a".repeat(64), backupConfirmed: true,
+          confirmation: "ลบสลิปที่เผยแพร่ มกราคม 2569",
+        },
+      });
+      assert.equal(noPublishedDelete.status(), 401, "anonymous users cannot delete published payroll");
       const forbiddenLine = await visitor.request.post(base + "/api/send-line", {
         headers: { Origin: base }, data: { month: "ตุลาคม", year: "2569" },
       });
