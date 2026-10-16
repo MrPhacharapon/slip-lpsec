@@ -321,13 +321,49 @@ export default function AdminPage() {
   };
 
   const handleDelete = async (id: string, storagePath: string, month: string, year: string) => {
-    if (!confirm(`คุณต้องการลบข้อมูลสลิปเดือน ${month} ${year} ใช่หรือไม่? (ข้อมูลสลิปย่อยจะถูกลบทั้งหมด)`)) return;
-    const response = await fetch("/api/admin/history", {
-      method: "DELETE", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, month, year }), cache: "no-store",
-    });
-    if (!response.ok) { alert((await response.json()).error || "ลบข้อมูลไม่สำเร็จ"); return; }
-    setHistoryItems(historyItems.filter(item => item.id !== id));
+    if (isUploading || recoveryBusy) return;
+    if (storagePath) {
+      alert("เดือนนี้ยังมีไฟล์ต้นฉบับใน Storage ห้ามลบผ่านหน้าเว็บ ต้องตรวจสอบสำเนาสำรองและไฟล์ต้นฉบับกับผู้ดูแลระบบก่อน");
+      return;
+    }
+    setRecoveryBusy(true);
+    try {
+      // Preview never reveals any account numbers, PDF bytes or private paths.
+      const previewResponse = await fetch("/api/admin/published-deletion", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, month, year }), cache: "no-store",
+      });
+      const preview = await previewResponse.json();
+      if (!previewResponse.ok) throw new Error(preview.error || "ตรวจสอบข้อมูลก่อนลบไม่สำเร็จ");
+      if (!preview.eligible || !preview.snapshot) {
+        if (preview.storageProtected) throw new Error("เดือนนี้มีไฟล์ต้นฉบับใน Storage ต้องตรวจสอบและสำรองไฟล์ก่อน ไม่อนุญาตให้ลบผ่านหน้าเว็บ");
+        throw new Error("ไม่สามารถลบเดือนนี้ได้: จำนวนสลิปหรือประวัติไม่ถูกต้อง กรุณาให้ผู้ดูแลตรวจสอบ");
+      }
+      const count = preview.slipCount as number;
+      const backedUp = window.confirm(
+        `คุณได้สำรองไฟล์สลิปเดือน ${month} ${year} และตรวจสอบว่านำกลับมาใช้งานได้แล้วหรือไม่?\n\nมีสลิปที่เผยแพร่ ${count} รายการ การลบจะลบทั้งสลิปและประวัติอย่างถาวร หากยังไม่มีสำเนาที่ตรวจสอบแล้ว ให้กดยกเลิก`
+      );
+      if (!backedUp) return;
+      const confirmation = `ลบสลิปที่เผยแพร่ ${month} ${year}`;
+      const typed = window.prompt(
+        `ยืนยันลบสลิปที่เผยแพร่ ${count} รายการ\nพิมพ์ข้อความนี้ให้ตรงทุกตัวอักษร:\n${confirmation}`
+      );
+      if (typed !== confirmation) return;
+      const response = await fetch("/api/admin/published-deletion", {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, month, year, expectedCount: count,
+          snapshot: preview.snapshot, confirmation, backupConfirmed: true }),
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "ลบข้อมูลไม่สำเร็จ");
+      await fetchHistory();
+      alert(`ลบสลิปที่เผยแพร่ ${data.deleted} รายการแล้ว กรุณาตรวจสอบประวัติอีกครั้ง`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "ดำเนินการลบไม่สำเร็จ กรุณาตรวจสอบรายการอีกครั้ง");
+    } finally {
+      setRecoveryBusy(false);
+    }
   };
 
   const handleViewFile = (storagePath: string) => {
