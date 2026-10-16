@@ -5,6 +5,10 @@ import { spawnSync } from "node:child_process";
 const script = "scripts/check-private-release-env.mjs";
 const fixture = {
   PAYROLL_RELEASE_TARGET: "test",
+  CRON_SECRET: "FICTIONAL_ONLY_CRON_SECRET_12345678",
+  LINE_CHANNEL_SECRET: "FICTIONAL_ONLY_LINE_CHANNEL_SECRET_23456789",
+  LINE_CHANNEL_ACCESS_TOKEN: "FICTIONAL_ONLY_LINE_ACCESS_TOKEN_34567890",
+  LINE_GROUP_ID: "FICTIONAL_ONLY_LINE_GROUP_45678901",
   STAFF_DIRECTORY_DISABLED: "true",
   SUPABASE_URL: "https://dpaqvxtbpaduknergflm.supabase.co",
   NEXT_PUBLIC_SUPABASE_URL: "https://dpaqvxtbpaduknergflm.supabase.co",
@@ -91,4 +95,30 @@ test("Test must refuse an enabled staff directory to prevent reaching real Sheet
     assert.equal(r.status, 1);
     assert.ok(JSON.parse(r.stdout).missingOrInvalid.includes("STAFF_DIRECTORY_DISABLED"));
   }
+});
+
+test("Production fails closed when LINE signing key or cron authorization is missing", () => {
+  const r = check({
+    PAYROLL_RELEASE_TARGET: "production",
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    STAFF_DIRECTORY_DISABLED: "false",
+    CRON_SECRET: null,
+    LINE_CHANNEL_SECRET: null,
+  });
+  assert.equal(r.status, 1);
+  const e = JSON.parse(r.stdout).missingOrInvalid;
+  assert.ok(e.includes("CRON_SECRET"));
+  assert.ok(e.includes("LINE_CHANNEL_SECRET"));
+});
+test("Production rejects duplicated cron secret and rate limit key", () => {
+  const r = check({
+    PAYROLL_RELEASE_TARGET: "production",
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    STAFF_DIRECTORY_DISABLED: "false",
+    CRON_SECRET: fixture.PAYROLL_RATE_LIMIT_SECRET,
+  });
+  assert.equal(r.status, 1);
+  assert.ok(JSON.parse(r.stdout).missingOrInvalid.includes("SECRET_REUSE"));
 });
