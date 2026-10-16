@@ -56,7 +56,7 @@ function validate(env) {
         origin.search || origin.hash ||
         origin.username || origin.password) errors.push("APP_ORIGIN");
   } catch { errors.push("APP_ORIGIN"); }
-  if (env.STAFF_SHEET_ID && !/^[a-zA-Z0-9_-]{15,}$/.test(env.STAFF_SHEET_ID)) {
+  if (env.STAFF_SHEET_ID && !/^[A-Za-z0-9_-]{20,100}$/.test(env.STAFF_SHEET_ID)) {
     errors.push("STAFF_SHEET_ID");
   }
   const secrets = [...Object.keys(REQUIRED_SECRET_LENGTHS),
