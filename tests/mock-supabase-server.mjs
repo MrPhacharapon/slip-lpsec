@@ -144,6 +144,13 @@ export async function startMockSupabase() {
               rows.some(r => r.month !== month || r.year !== year || !/^\d{10}$/.test(r.bank_account))) {
             fail(400, "22023", "invalid rows"); return;
           }
+          // Mirror the real transactional stage RPC's cumulative 500-row cap.
+          // A row limit only at publication would permit impossible-to-publish
+          // staged batches to accumulate via direct Admin API calls.
+          const existingCount = current.rows.filter(r => r.month === month && r.year === year).length;
+          if (existingCount + rows.length > 500) {
+            fail(400, "22023", "staged period exceeds 500 slips"); return;
+          }
           const keys = new Set(current.rows.map(r => r.bank_account + ":" + r.month + ":" + r.year));
           if (rows.some(r => keys.has(r.bank_account + ":" + month + ":" + year)) ||
               new Set(rows.map(r => r.bank_account)).size !== rows.length) {
