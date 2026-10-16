@@ -29,7 +29,15 @@
 - สถานะใน Production เดือนตุลาคมต้องตรวจและซ่อมแยกต่างหาก (ไม่ดำเนินการโดยอัตโนมัติ)
 - ฐานข้อมูลเดิมมีความเสี่ยงการเปิดอ่านโดย anon/RLS และ public storage ตามการตรวจครั้งก่อน; การแก้ไขเป็นคนละขอบเขตและต้องวางแผนไม่ให้ระบบเดิมหยุดทำงาน
 - การ insert slips และ insert upload_history ปัจจุบันยังเป็นสองขั้นตอน **ไม่ใช่ transaction เดียวกัน**; หากการบันทึกประวัติล้มเหลวหลังบันทึกสลิปสำเร็จต้องติดต่อผู้ดูแล
-- ผล ESLint ทั้งโปรเจกต์ยังมีข้อผิดพลาดเดิม 18 รายการ (workflow กำหนดเป็นขั้นรายงานเท่านั้น)
+- ผล Full-project ESLint ล่าสุดยังมี 13 errors / 1,595 warnings (ขั้นรายงานผล ไม่ใช่ตัวหยุด CI); Targeted ESLint ผ่าน
+
+## ผลตรวจรับอัตโนมัติรอบ 16 ตุลาคม 2569 (Branch ทดสอบ)
+
+- GitHub Actions [Run 38844122107](https://github.com/MrPhacharapon/slip-lpsec/actions/runs/38844122107) ที่ Commit `677a8261e7b9121871e1a4dc2797833ea641914c`: **Automated Tests ผ่าน 55/55**, TypeScript ผ่าน, Next.js Build ผ่าน และ Browser E2E กับบริการจำลองผ่าน
+- เพิ่มการตรวจความปลอดภัยของสคริปต์ `scripts/test-isolated-next-api.mjs`: บังคับ Opt-in/URL โครงการทดสอบ/Secret, รายงาน PASS หลัง Cleanup, แยก SKIP เมื่อไม่มี Publishable Key และตรวจแถว SQL + Storage หลัง Cleanup
+- ผลทดสอบ Browser E2E เป็น Mock; ไม่ใช่หลักฐานว่า Next.js เชื่อมกับ Supabase จริงได้ครบวงจร และไม่มีการนำ Secret จริงลง CI
+- การรันทดสอบ Next.js → Supabase Test จริงยังรอ Test Service-role Key ที่กำหนดในสภาพแวดล้อมส่วนตัวที่ปลอดภัย; ไม่ใช่งานที่อนุญาตให้ส่ง Secret ในแชท
+- ก่อน Production ต้องตรวจรับ Backup/Restore, Legacy Storage, RLS/Grants, ค่า Environment, ทดสอบ PDF จริงในพื้นที่ควบคุม และขออนุมัติ Merge/Deploy แยกต่างหาก
 
 ## ขอบเขตสิทธิ์ที่ยังไม่อนุมัติ
 - ห้าม Merge เข้า main, Deploy, หรือแก้ข้อมูล Supabase Production โดยไม่ได้รับคำสั่งใหม่
