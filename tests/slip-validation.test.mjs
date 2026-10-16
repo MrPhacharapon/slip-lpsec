@@ -103,3 +103,21 @@ test('duplicate printed position labels in the same slip fail closed',()=>{
   const wrong={str:heading+'นายตัวอย่าง หนึ่ง เลขตำแหน่ง 0000001 เลขตำแหน่ง 0000001 เลขที่บัญชี 1234567890',y:650};
   assert.throws(()=>identifyPageSlips([wrong],842,roster),SlipValidationError);
 });
+
+
+test('upload accepts exactly 500 distinct mapped slips before staging', () => {
+  const mapped = Array.from({ length: 500 }, (_, i) => ({
+    person: { ...roster[0], bankAccount: String(9000000000 + i) },
+    region: 'full',
+  }));
+  assert.doesNotThrow(() => assertUniquePeriod(mapped));
+});
+
+test('upload refuses 501 distinct slips before any database staging', () => {
+  const mapped = Array.from({ length: 501 }, (_, i) => ({
+    person: { ...roster[0], bankAccount: String(9000000000 + i) },
+    region: i % 2 ? 'bottom' : 'top',
+  }));
+  assert.throws(() => assertUniquePeriod(mapped), err =>
+    err instanceof SlipValidationError && /500/.test(err.message));
+});
