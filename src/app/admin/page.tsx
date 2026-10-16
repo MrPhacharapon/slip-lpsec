@@ -264,9 +264,15 @@ export default function AdminPage() {
       const finalResult = await finished.json().catch(() => null);
       if (!finished.ok || finalResult?.success !== true)
         throw new Error("ไม่สามารถยืนยันการเผยแพร่ โปรดตรวจสอบสถานะข้อมูลก่อนดำเนินการต่อ");
+      // Publishing already committed on the server. A later history-read
+      // failure must not be reported as an upload failure or suggest retrying.
       setUploadSuccess(true);
-      await fetchHistory();
       setFile(null);
+      try {
+        await fetchHistory();
+      } catch {
+        alert("เผยแพร่สลิปสำเร็จแล้ว แต่โหลดประวัติไม่สำเร็จ กรุณารีเฟรชหน้าจอเพื่อตรวจสอบ ห้ามอัปโหลดซ้ำ");
+      }
     } catch (error) {
       console.error("Payroll import failed:", error instanceof Error ? error.message : "unknown");
       alert(error instanceof Error ? error.message : "ตรวจสอบเอกสารไม่สำเร็จ");
