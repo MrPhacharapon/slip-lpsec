@@ -36,6 +36,14 @@
 
 **สคริปต์ทดสอบจริงที่เตรียมไว้:** `scripts/test-isolated-supabase-live.mjs` ใช้เฉพาะ `TEST_SUPABASE_URL` ที่ตรงกับโครงการทดสอบนี้และ `TEST_SUPABASE_SERVICE_ROLE_KEY` ฝั่งเครื่องส่วนตัว พร้อม `TEST_SUPABASE_RUN=I_UNDERSTAND_TEST_ONLY`; สร้าง PDF สมมติจริงด้วย pdf-lib, ทดสอบ stage, duplicate, publish, read-back, Private Storage แล้วลบข้อมูลจำลองใน `finally`. **ยังไม่ได้รันสคริปต์นี้** เพราะสภาพแวดล้อมปัจจุบันไม่มี test service-role secret ผ่านเครื่องมือที่ปลอดภัย และไม่มีการเชื่อมต่อเครือข่ายจาก container. ไม่ควรใส่ secret ใน GitHub Actions หรือในแชท.
 
+**ใหม่ — การทดสอบ Next.js → Supabase จริง:** เตรียม `scripts/test-isolated-next-api.mjs` ซึ่งบังคับ URL เป็น `https://dpaqvxtbpaduknergflm.supabase.co`, สร้างเว็บเซิร์ฟเวอร์ Next.js ภายในเครื่องเฉพาะ `127.0.0.1:3137` โดยใช้ Admin password/session และกุญแจจำกัดคำขอที่สุ่มเพื่อทดสอบเท่านั้น ไม่แตะค่าลับ Production, ปิดทะเบียน Google Sheets จริง, และใช้เฉพาะ PDF/ชื่อ/บัญชีสมมติ
+
+สคริปต์นี้เรียก **API เดียวกับแอปจริง**: Admin login → preflight → stage → ตรวจไม่แสดงก่อนเผยแพร่ → preview/ล้าง staged → stage → ตรวจเลขบัญชีซ้ำและจำนวนผิด → publish → ค้นหาเลขบัญชี → เปิด PDF บุคคลเดียว → ตรวจ Private Storage → ตรวจความจำเป็นต้องยืนยันสำรองก่อนลบ พร้อมกู้คืน/ล้างข้อมูลทดสอบผ่าน Admin RPC ที่ตรวจ snapshot ใน `finally`. หากข้อมูลเปลี่ยนหรือเกินขอบเขต จะหยุดโดยไม่ลบข้อมูลที่ไม่ใช่ของชุดทดสอบ และแจ้งให้ตรวจด้วยผู้ดูแล
+
+**การรันด้วยเครื่องส่วนตัว (ยังไม่ได้รันจริง):** ต้องติดตั้ง Node.js 22+ และ `npm ci`, ใช้ค่า Environment `TEST_SUPABASE_RUN=I_UNDERSTAND_TEST_ONLY`, `TEST_SUPABASE_URL=https://dpaqvxtbpaduknergflm.supabase.co`, `TEST_SUPABASE_SERVICE_ROLE_KEY` ของ **โครงการทดสอบเท่านั้น** ซึ่งตั้งไว้ในเครื่องโดยตรง ไม่ส่งกุญแจหรือค่า Environment ทั้งหมดเข้า ChatGPT, GitHub, commit, CI logs หรือภาพหน้าจอ จากนั้นใช้ `node scripts/test-isolated-next-api.mjs`. สามารถกำหนด `TEST_SUPABASE_PUBLISHABLE_KEY` ของโครงการทดสอบเพื่อทดสอบการปฏิเสธ Storage สำหรับผู้ใช้สาธารณะได้
+
+`scripts/test-isolated-supabase-live.mjs` รุ่นแรกทดสอบฐานข้อมูล/Storage โดยตรงเท่านั้นและไม่ใช้ API ใหม่ครบวงจร ให้ใช้สคริปต์ `test-isolated-next-api.mjs` สำหรับการตรวจรับแอปจริงแทน
+
 **ยังไม่ดำเนินการ:** การสร้างรหัส secret ของโครงการทดสอบในสถานที่ทำงานสำหรับ Next.js, การ Deploy ไป Vercel, การแก้ไข RLS/Storage ใน Production, การ Merge เข้า main
 
 ## ข้อพึงระวัง
