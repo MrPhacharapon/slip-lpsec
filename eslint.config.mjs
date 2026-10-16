@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Bundled PDF.js worker is a vendored, minified runtime asset.
+    // Lint the source integrations instead; do not rewrite the vendor bundle.
+    "public/pdf.worker.min.mjs",
   ]),
 ]);
 
