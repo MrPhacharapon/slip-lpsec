@@ -57,3 +57,19 @@ test("release preflight never executes arguments as commands", () => {
   const r = check({}, ["--unknown"]);
   assert.equal(r.status, 2);
 });
+
+test("isolated Test permits disabled staff directory without a real roster", () => {
+  const r = check({ STAFF_DIRECTORY_DISABLED: "true", STAFF_SHEET_ID: null });
+  assert.equal(r.status, 0, r.stderr);
+});
+test("Production always requires an explicit staff directory", () => {
+  const r = check({
+    PAYROLL_RELEASE_TARGET: "production",
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    STAFF_DIRECTORY_DISABLED: "true",
+    STAFF_SHEET_ID: null,
+  });
+  assert.equal(r.status, 1);
+  assert.ok(JSON.parse(r.stdout).missingOrInvalid.includes("STAFF_SHEET_ID"));
+});
