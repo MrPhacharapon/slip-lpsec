@@ -38,13 +38,58 @@ export async function startMockSupabase() {
       "/rest/v1/rpc/inspect_unpublished_payroll_period",
       "/rest/v1/rpc/discard_unpublished_payroll_period",
     ].includes(url.pathname);
-    if (!table && !isPayrollRpc && !isRecoveryRpc &&
+    const isPublishedDeletionRpc = [
+      "/rest/v1/rpc/inspect_published_payroll_deletion",
+      "/rest/v1/rpc/delete_published_payroll_period",
+    ].includes(url.pathname);
+    if (!table && !isPayrollRpc && !isRecoveryRpc && !isPublishedDeletionRpc &&
         url.pathname !== "/rest/v1/rpc/check_payroll_rate_limit") {
       res.writeHead(404); res.end("{}"); return;
     }
     let payload = "";
     for await (const chunk of req) payload += chunk.toString();
     const headers = { "Content-Type": "application/json; charset=utf-8", "Content-Range": "*/*" };
+    if (isPublishedDeletionRpc) {
+      const fail = (status, code, message) => {
+        res.writeHead(status, headers);
+        res.end(JSON.stringify({ code, message }));
+      };
+      if (req.method !== "POST") { fail(405, "405", "POST required"); return; }
+      try {
+        const args = JSON.parse(payload);
+        const { p_id: id, p_month: month, p_year: year } = args;
+        const histories = current.history.filter(r => r.month === month && r.year === year);
+        const history = histories.find(r => String(r.id) === String(id));
+        if (!history) { fail(404, "P0002", "history not found"); return; }
+        const slips = current.rows.filter(r => r.month === month && r.year === year);
+        const protectedFile = Boolean(String(history.storage_path ?? "").trim());
+        const eligible = histories.length === 1 && slips.length >= 1 && slips.length <= 500 &&
+          new Set(slips.map(r => r.bank_account)).size === slips.length && !protectedFile;
+        const payload = [
+          history.id, month, year, history.file_name, history.created_at,
+          ...slips.map(r => r.id + ":" + r.bank_account + ":" + r.pdf_base64).sort(),
+        ].join("|");
+        const snapshot = eligible
+          ? createHash("sha256").update(payload).digest("hex") : null;
+        if (url.pathname.endsWith("/inspect_published_payroll_deletion")) {
+          res.writeHead(200, headers);
+          res.end(JSON.stringify({
+            published: true, slipCount: slips.length, historyCount: histories.length,
+            storageProtected: protectedFile, eligible, snapshot,
+          }));
+        } else {
+          if (protectedFile) { fail(409, "22023", "storage original is protected"); return; }
+          if (!eligible || args.p_expected_count !== slips.length ||
+              args.p_expected_snapshot !== snapshot) {
+            fail(409, "40001", "preview invalid or stale"); return;
+          }
+          current.rows = current.rows.filter(r => r.month !== month || r.year !== year);
+          current.history = current.history.filter(r => r.month !== month || r.year !== year);
+          res.writeHead(200, headers); res.end(JSON.stringify(slips.length));
+        }
+      } catch (error) { fail(500, "MOCK_RPC_ERROR", String(error)); }
+      return;
+    }
     if (isRecoveryRpc) {
       const fail = (status, code, message) => {
         res.writeHead(status, headers);
