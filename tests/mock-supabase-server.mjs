@@ -24,7 +24,7 @@ function filterRows(values, params) {
       return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
     });
   } else if (order?.includes("created_at.desc")) {
-    rows.sort((a,b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+    rows.sort((a,b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
   }
   const limit = Number(params.get("limit"));
   if (Number.isInteger(limit) && limit > 0) rows = rows.slice(0, limit);
