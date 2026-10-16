@@ -57,9 +57,9 @@ function validate(env) {
   if (env.STAFF_SHEET_ID && !/^[a-zA-Z0-9_-]{15,}$/.test(env.STAFF_SHEET_ID)) {
     errors.push("STAFF_SHEET_ID");
   }
-  const secrets = Object.values(REQUIRED_SECRET_LENGTHS)
-    .map((_, i) => env[Object.keys(REQUIRED_SECRET_LENGTHS)[i]])
-    .filter(Boolean);
+  const secrets = [...Object.keys(REQUIRED_SECRET_LENGTHS),
+    "CRON_SECRET", "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN"]
+    .map(key => env[key]).filter(Boolean);
   if (new Set(secrets).size !== secrets.length) errors.push("SECRET_REUSE");
   for (const key of ["SUPABASE_SERVICE_ROLE_KEY", "ADMIN_PASSWORD",
     "ADMIN_SESSION_SECRET", "PAYROLL_RATE_LIMIT_SECRET"]) {
