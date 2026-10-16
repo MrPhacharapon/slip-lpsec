@@ -13,7 +13,6 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
       NEXT_PUBLIC_SUPABASE_ANON_KEY: local-test-key-not-a-secret
-      NEXT_PUBLIC_STAFF_SHEET_URL: https://docs.google.com/spreadsheets/d/TEST_ROSTER_FAKE_DOC_NOT_PERSONAL_0001/edit?gid=0
       CI: true
     steps:
       - uses: actions/checkout@v7
