@@ -7,6 +7,9 @@ export async function GET(req: NextRequest) {
   if (rejected) return rejected;
   try {
     const { data, error } = await payrollDb().from("upload_history").select("*")
+      // New history without a display_order appears first; preexisting rows
+      // remain in chronological order until an Admin explicitly reorders them.
+      .order("display_order", { ascending: true, nullsFirst: true })
       .order("created_at", { ascending: false }).limit(120);
     if (error) throw error;
     return reply({ history: data ?? [] });
@@ -20,18 +23,18 @@ export async function PATCH(req: NextRequest) {
     if (!Array.isArray(ids) || ids.length < 1 || ids.length > 120 ||
         ids.some(x => typeof x !== "string" || x.length > 100) ||
         new Set(ids).size !== ids.length) return reply({ error: "ลำดับไม่ถูกต้อง" }, 400);
-    const db = payrollDb();
-    const { data, error } = await db.from("upload_history").select("id");
-    if (error) throw error;
-    if ((data ?? []).length !== ids.length ||
-        data?.some(entry => !ids.includes(String(entry.id)))) return reply({ error: "รายการประวัติมีการเปลี่ยนแปลง กรุณาโหลดใหม่" }, 409);
-    const now = Date.now();
-    for (const [index, id] of ids.entries()) {
-      const updated = await db.from("upload_history").update({
-        created_at: new Date(now - index * 1000).toISOString(),
-      }).eq("id", id);
-      if (updated.error) throw updated.error;
-    }
+    // One server-side PostgreSQL transaction performs the complete reorder.
+    // Never rewrite created_at: it is the actual publication audit timestamp.
+    const { data, error } = await payrollDb().rpc("reorder_payroll_history", {
+      p_ids: ids,
+    });
+    if (error?.code === "40001") return reply({
+      error: "รายการประวัติมีการเปลี่ยนแปลง กรุณาโหลดใหม่",
+    }, 409);
+    if (error?.code === "22023") return reply({ error: "ลำดับไม่ถูกต้อง" }, 400);
+    if (error || data !== true) return reply({
+      error: "ไม่สามารถยืนยันการจัดเรียงได้ กรุณาโหลดใหม่",
+    }, 503);
     return reply({ success: true });
   } catch { return reply({ error: "จัดเรียงไม่สำเร็จ กรุณาโหลดใหม่" }, 503); }
 }
