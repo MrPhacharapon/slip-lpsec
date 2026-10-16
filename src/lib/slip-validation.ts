@@ -181,3 +181,20 @@ export function validateSlipPageLayout(
   }
   return "single";
 }
+
+/** Enforce the same format throughout the uploaded payroll PDF. */
+export function assertSlipDocumentLayout(layouts: Array<"single" | "double">): void {
+  if (layouts.length === 0 || layouts.length > 500 ||
+      layouts.some(layout => layout !== "single" && layout !== "double")) {
+    throw new SlipValidationError("รูปแบบจำนวนหน้าเอกสารไม่ถูกต้อง");
+  }
+  if (layouts.includes("double")) {
+    for (let index = 0; index < layouts.length - 1; index++) {
+      if (layouts[index] === "single") {
+        throw new SlipValidationError(
+          "รูปแบบ B อนุญาตสลิปหนึ่งคนเฉพาะหน้าสุดท้าย: หน้า " + (index + 1)
+        );
+      }
+    }
+  }
+}
