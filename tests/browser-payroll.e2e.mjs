@@ -258,6 +258,9 @@ async function main() {
         });
         assert.equal(rejected.status(), 403, "foreign Origin blocked: " + route);
       }
+      const forbiddenRoster = await visitor.request.get(base + "/api/admin/roster");
+      assert.equal(forbiddenRoster.status(), 401,
+        "staff roster with bank accounts must never be available anonymously");
       const forbiddenOriginal = await visitor.request.get(base +
         "/api/admin/storage?path=synthetic.pdf");
       assert.equal(forbiddenOriginal.status(), 401,
@@ -296,6 +299,11 @@ async function main() {
         const signedCookie = testLogin.headers()["set-cookie"]?.split(";")[0] ?? "";
         assert.match(signedCookie, /^payroll_admin_session=[^.]+\.[^.]+$/,
           "sandbox login returned a signed session cookie");
+        const unavailableRoster = await context.request.get(base + "/api/admin/roster", {
+          headers: { Cookie: signedCookie },
+        });
+        assert.equal(unavailableRoster.status(), 503,
+          "disabled private Test roster must refuse outbound Google Sheets access");
         for (const route of ["/api/admin/preflight", "/api/admin/finalize",
           "/api/admin/slips", "/api/send-line"]) {
           const rejected = await context.request.post(base + route, {
