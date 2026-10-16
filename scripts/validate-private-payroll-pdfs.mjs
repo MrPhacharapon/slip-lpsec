@@ -16,6 +16,7 @@ import Papa from "papaparse";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   parseRoster, validateSlipPageLayout, identifyPageSlips, assertUniquePeriod,
+  assertSlipDocumentLayout,
 } from "../src/lib/slip-validation.ts";
 
 function argumentsFrom(argv) {
@@ -63,6 +64,7 @@ async function checkPdf(file, roster) {
     if (!document.numPages || document.numPages > 500)
       throw Error("invalid source page count");
     const all = [];
+    const layouts = [];
     let singlePages = 0, doublePages = 0;
     for (let i = 0; i < document.numPages; i++) {
       stage = "PAGE_READ";
@@ -91,6 +93,7 @@ async function checkPdf(file, roster) {
         throw Object.assign(Error("PDF text/layout/ownership validation failed"),
           { page: i + 1 });
       }
+      layouts.push(layout);
       if (layout === "single") singlePages++;
       else doublePages++;
       all.push(...matches);
@@ -99,6 +102,7 @@ async function checkPdf(file, roster) {
     // Duplicate accounts or impossible period totals are refused before
     // rendering or database staging by the same uploader validator.
     stage = "PERIOD_VALIDATE";
+    assertSlipDocumentLayout(layouts);
     assertUniquePeriod(all);
     return {
       pageCount: document.numPages,
