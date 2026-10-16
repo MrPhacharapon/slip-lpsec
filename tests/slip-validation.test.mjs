@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseRoster,identifyPageSlips,assertUniquePeriod,SlipValidationError,validateSlipPageLayout} from '../src/lib/slip-validation.ts';
+import {parseRoster,identifyPageSlips,assertUniquePeriod,assertSlipDocumentLayout,SlipValidationError,validateSlipPageLayout} from '../src/lib/slip-validation.ts';
 
 const roster=parseRoster([
   ['ชื่อ-นามสกุล','ตำแหน่ง','เลขที่บัญชี','รายการรายรับ (เลขตำแหน่ง)'],
@@ -120,4 +120,33 @@ test('upload refuses 501 distinct slips before any database staging', () => {
   }));
   assert.throws(() => assertUniquePeriod(mapped), err =>
     err instanceof SlipValidationError && /500/.test(err.message));
+});
+
+
+test('full A document accepts single-person page sequence', () => {
+  assert.doesNotThrow(() => assertSlipDocumentLayout(['single','single','single']));
+});
+test('compact B document accepts double pages and one odd final single', () => {
+  for (const pages of [
+    ['double'], ['double','double'], ['double','single'],
+    ['double','double','single'],
+  ]) assert.doesNotThrow(() => assertSlipDocumentLayout(pages));
+});
+test('mixed A then B must fail at original page 1', () => {
+  assert.throws(() => assertSlipDocumentLayout(['single','double']),
+    error => error instanceof SlipValidationError && error.page === 1);
+});
+test('B with a single-person middle page must fail at that page', () => {
+  assert.throws(() => assertSlipDocumentLayout(['double','single','double']),
+    error => error instanceof SlipValidationError && error.page === 2);
+});
+test('B cannot have two single-person final pages', () => {
+  assert.throws(() => assertSlipDocumentLayout(['double','single','single']),
+    error => error instanceof SlipValidationError && error.page === 2);
+});
+test('empty document must fail', () => {
+  assert.throws(() => assertSlipDocumentLayout([]), SlipValidationError);
+});
+test('unknown page layout must fail', () => {
+  assert.throws(() => assertSlipDocumentLayout(['double','unknown']), SlipValidationError);
 });
