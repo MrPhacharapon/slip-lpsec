@@ -35,14 +35,15 @@ export async function POST(req: NextRequest) {
     });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error('Failed to send LINE message:', errorText);
+      // The provider's response body is untrusted. Do not log it: it can
+      // contain private request or authorization details.
+      console.error('LINE notification failed with HTTP status:', response.status);
       return NextResponse.json({ error: 'Failed to send LINE message' }, { status: response.status });
     }
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Send LINE Error:', error);
+  } catch {
+    console.error('LINE notification request failed');
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
