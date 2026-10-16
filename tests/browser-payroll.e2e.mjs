@@ -964,11 +964,12 @@ async function main() {
       } finally { await visitor.close(); await context.close(); }
     }
 
-    // Capacity regression: 39 fictitious staff -> 20 pages, last with one.
+    // Capacity regression at the realistic 100-person upper planning bound:
+    // layout B produces 50 pages; the separate 3-person test covers odd tails.
     // This is a browser-only benchmark, not a production performance claim.
     {
       const glyphs = [..."กขคฆงจฉชซญฎฏฐฑฒณดตถทธนบปผฝพฟภมยรลวศษสหฬอฮ"];
-      const large = Array.from({ length: 39 }, (_, i) => ({
+      const large = Array.from({ length: 100 }, (_, i) => ({
         name: "นายทดสอบ " + glyphs[Math.floor(i / glyphs.length)] + glyphs[i % glyphs.length],
         account: String(7000000000 + i),
         position: String(1000000 + i),
@@ -981,11 +982,11 @@ async function main() {
         const {page,messages,errors} = await submitOnAdmin(context, pdf, "ตุลาคม");
         await awaitUploadSuccess(page, messages, errors, 150000);
         const elapsed = ((Date.now() - start) / 1000).toFixed(1);
-        assert.equal(state.rows.length, 39, "all fictitious owners must be stored");
+        assert.equal(state.rows.length, 100, "all fictitious owners must be stored");
         assert.equal(state.history.length, 1);
-        assert.equal(new Set(state.rows.map(x => x.bank_account)).size, 39);
+        assert.equal(new Set(state.rows.map(x => x.bank_account)).size, 100);
         assert.ok(state.rows.every(x => x.pdf_base64?.length > 1000));
-        console.log("PASS volume: 39 synthetic slips / 20 pages processed in " + elapsed + " seconds on CI runner.");
+        console.log("PASS volume: 100 synthetic slips / 50 pages processed in " + elapsed + " seconds on CI runner.");
         await page.close();
       } finally { await context.close(); }
     }
