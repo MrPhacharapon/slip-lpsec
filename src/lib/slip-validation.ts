@@ -5,9 +5,11 @@ export type PageRegion = "top" | "bottom" | "full";
 export type VerifiedSlip = { person: RosterPerson; region: PageRegion };
 
 export class SlipValidationError extends Error {
-  constructor(message: string) {
+  readonly page?: number;
+  constructor(message: string, page?: number) {
     super(message);
     this.name = "SlipValidationError";
+    this.page = page;
   }
 }
 
@@ -192,7 +194,8 @@ export function assertSlipDocumentLayout(layouts: Array<"single" | "double">): v
     for (let index = 0; index < layouts.length - 1; index++) {
       if (layouts[index] === "single") {
         throw new SlipValidationError(
-          "รูปแบบ B อนุญาตสลิปหนึ่งคนเฉพาะหน้าสุดท้าย: หน้า " + (index + 1)
+          "รูปแบบ B อนุญาตสลิปหนึ่งคนเฉพาะหน้าสุดท้าย: หน้า " + (index + 1),
+          index + 1
         );
       }
     }
