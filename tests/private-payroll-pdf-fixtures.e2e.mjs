@@ -9,6 +9,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PDFDocument } from "pdf-lib";
 
 const people = [
   { name: "นายทดสอบ หนึ่ง", account: "1234567890", position: "0000001" },
@@ -81,6 +82,35 @@ test("private PDF.js rejects incorrect position in synthetic PDF at page 1", () 
     assert.ok(!result.stdout.includes("1234567890"));
     assert.ok(!result.stderr.includes("1234567890"));
     assert.ok(!result.stdout.includes(dir));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test("private PDF.js rejects an isolated A page before a B double page", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "payroll-fictional-mixed-"));
+  try {
+    const path = join(dir, "synthetic-mixed-invalid.pdf");
+    const a = await PDFDocument.load(fixture("A", [people[0]]));
+    const b = await PDFDocument.load(fixture("B", people.slice(1)));
+    const mixed = await PDFDocument.create();
+    for (const doc of [a, b]) {
+      const [page] = await mixed.copyPages(doc, [0]);
+      mixed.addPage(page);
+    }
+    writeFileSync(path, Buffer.from(await mixed.save()));
+    const output = checkCli(dir, [path]);
+    assert.equal(output.status, 1, output.stdout);
+    const events = output.stdout.trim().split(/\r?\n/)
+      .filter(line => line.startsWith("{")).map(line => JSON.parse(line));
+    assert.deepEqual(events, [
+      { document: 1, status: "FAIL", page: 1, stage: "PERIOD_VALIDATE" },
+      { result: "FAIL", documents: 1, failedDocuments: 1, pages: 0, slips: 0 },
+    ]);
+    for (const secret of [dir, ...people.flatMap(p => [p.name, p.account, p.position])]) {
+      assert.ok(!(output.stdout + output.stderr).includes(secret));
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
