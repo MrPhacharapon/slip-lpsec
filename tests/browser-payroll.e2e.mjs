@@ -633,6 +633,28 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // Reject an A page followed by a compact B page before any staging.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const first = await PDFDocument.load(await printablePdf(browser, "A", [persons[0]]));
+        const second = await PDFDocument.load(await printablePdf(browser, "B", persons.slice(1)));
+        const combined = await PDFDocument.create();
+        for (const document of [first, second]) {
+          const [page] = await combined.copyPages(document, [0]);
+          combined.addPage(page);
+        }
+        const result = await submitOnAdmin(context, Buffer.from(await combined.save()));
+        await until(() => result.messages.length > 0, "mixed payroll layout rejection");
+        assert.equal(state.rows.length, 0);
+        assert.equal(state.history.length, 0);
+        assert.ok(result.messages.some(s => s.includes("หน้าสุดท้าย")));
+        assert.deepEqual(result.errors, []);
+        await result.page.close();
+      } finally { await context.close(); }
+    }
+
     // Mismatched position: fail closed; nothing written.
     {
       const state = { rows: [], history: [] };
