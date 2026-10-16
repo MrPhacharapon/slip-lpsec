@@ -289,12 +289,19 @@ async function main() {
         await admin.goto(base + "/admin", { waitUntil: "domcontentloaded" });
         await admin.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
 
-        // Even a valid signed Admin cookie cannot authorize a cross-site
-        // mutation: same-origin validation is a separate required control.
+        // Playwright's cookie policy may withhold SameSite=Strict cookies
+        // for a foreign Origin. Attach the real signed test session explicitly
+        // so the test exercises the *separate* Origin guard after auth succeeds.
+        const adminSession = (await context.cookies(base))
+          .find(cookie => cookie.name === "payroll_admin_session");
+        assert.ok(adminSession?.value, "a signed Admin cookie is available");
         for (const route of ["/api/admin/preflight", "/api/admin/finalize",
           "/api/admin/slips", "/api/send-line"]) {
           const rejected = await context.request.post(base + route, {
-            headers: { Origin: "https://cross-site.invalid" },
+            headers: {
+              Origin: "https://cross-site.invalid",
+              Cookie: adminSession.name + "=" + adminSession.value,
+            },
             data: route.endsWith("/slips") ? { rows: [] } :
               { month: "ตุลาคม", year: "2569", fileName: "fake.pdf", expectedCount: 1 },
           });
