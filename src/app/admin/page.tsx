@@ -238,10 +238,13 @@ export default function AdminPage() {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rows: pending }), cache: "no-store",
         });
-        if (!response.ok) {
-          const data = await response.json().catch(() => ({}));
-          throw new Error(data.error || "บันทึกสลิปบางส่วนไม่สำเร็จ กรุณาติดต่อผู้ดูแล ห้ามอัปโหลดซ้ำ");
-        }
+        const data = await response.json().catch(() => null);
+        if (!response.ok)
+          throw new Error(data?.error || "บันทึกสลิปบางส่วนไม่สำเร็จ กรุณาติดต่อผู้ดูแล ห้ามอัปโหลดซ้ำ");
+        // A 200 status without the exact acknowledged insert count is not
+        // proof that staging succeeded; stop before publishing the period.
+        if (data?.success !== true || data?.inserted !== pending.length)
+          throw new Error("ไม่สามารถยืนยันจำนวนสลิปที่บันทึกได้ กรุณาตรวจสถานะก่อนอัปโหลดซ้ำ");
         pending = [];
       };
       for (const row of rows) {
@@ -258,8 +261,9 @@ export default function AdminPage() {
         body: JSON.stringify({ month: selectedMonth, year: selectedYear,
           fileName: file.name, expectedCount: rows.length }), cache: "no-store",
       });
-      if (!finished.ok)
-        throw new Error("บันทึกไฟล์แล้ว แต่ยังไม่เผยแพร่ โปรดตรวจสอบสถานะข้อมูลก่อนดำเนินการต่อ");
+      const finalResult = await finished.json().catch(() => null);
+      if (!finished.ok || finalResult?.success !== true)
+        throw new Error("ไม่สามารถยืนยันการเผยแพร่ โปรดตรวจสอบสถานะข้อมูลก่อนดำเนินการต่อ");
       setUploadSuccess(true);
       await fetchHistory();
       setFile(null);
