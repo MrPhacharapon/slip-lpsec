@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 const script = "scripts/check-private-release-env.mjs";
 const fixture = {
   PAYROLL_RELEASE_TARGET: "test",
+  STAFF_DIRECTORY_DISABLED: "true",
   SUPABASE_URL: "https://dpaqvxtbpaduknergflm.supabase.co",
   NEXT_PUBLIC_SUPABASE_URL: "https://dpaqvxtbpaduknergflm.supabase.co",
   APP_ORIGIN: "https://private-fixture.example.invalid",
@@ -62,7 +63,7 @@ test("isolated Test permits disabled staff directory without a real roster", () 
   const r = check({ STAFF_DIRECTORY_DISABLED: "true", STAFF_SHEET_ID: null });
   assert.equal(r.status, 0, r.stderr);
 });
-test("Production always requires an explicit staff directory", () => {
+test("Production requires a real directory and rejects a disabled directory flag", () => {
   const r = check({
     PAYROLL_RELEASE_TARGET: "production",
     SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
@@ -71,5 +72,23 @@ test("Production always requires an explicit staff directory", () => {
     STAFF_SHEET_ID: null,
   });
   assert.equal(r.status, 1);
-  assert.ok(JSON.parse(r.stdout).missingOrInvalid.includes("STAFF_SHEET_ID"));
+  const violations = JSON.parse(r.stdout).missingOrInvalid;
+  assert.ok(violations.includes("STAFF_SHEET_ID"));
+  assert.ok(violations.includes("STAFF_DIRECTORY_DISABLED"));
+});
+test("Production accepts explicit directory access with correct non-secret metadata", () => {
+  const r = check({
+    PAYROLL_RELEASE_TARGET: "production",
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    STAFF_DIRECTORY_DISABLED: "false",
+  });
+  assert.equal(r.status, 0, r.stderr);
+});
+test("Test must refuse an enabled staff directory to prevent reaching real Sheets", () => {
+  for (const value of ["false", null]) {
+    const r = check({ STAFF_DIRECTORY_DISABLED: value });
+    assert.equal(r.status, 1);
+    assert.ok(JSON.parse(r.stdout).missingOrInvalid.includes("STAFF_DIRECTORY_DISABLED"));
+  }
 });
