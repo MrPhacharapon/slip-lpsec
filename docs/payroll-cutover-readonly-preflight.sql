@@ -16,6 +16,19 @@ WITH duplicate_slips AS (
     SELECT 1 FROM public.upload_history
     GROUP BY month, year HAVING COUNT(*) > 1
   ) d
+), valid_unique_indexes AS (
+  SELECT t.relname AS table_name,
+    string_agg(a.attname::text, ',' ORDER BY a.attname::text) AS columns_sorted
+  FROM pg_catalog.pg_index ix
+  JOIN pg_catalog.pg_class t ON t.oid=ix.indrelid
+  JOIN pg_catalog.pg_namespace ns ON ns.oid=t.relnamespace
+  CROSS JOIN LATERAL unnest(ix.indkey::smallint[]) k(attnum)
+  JOIN pg_catalog.pg_attribute a ON a.attrelid=t.oid AND a.attnum=k.attnum
+  WHERE ns.nspname='public'
+    AND t.relname IN ('slips','upload_history')
+    AND ix.indisunique AND ix.indisvalid AND ix.indpred IS NULL
+    AND ix.indexprs IS NULL AND ix.indnatts=ix.indnkeyatts
+  GROUP BY t.relname, ix.indexrelid
 )
 SELECT
   (SELECT COUNT(*) FROM public.slips) AS slips_total,
@@ -30,6 +43,10 @@ SELECT
      WHERE schemaname='public' AND tablename='slips') AS slips_rls_enabled,
   (SELECT rowsecurity FROM pg_catalog.pg_tables
      WHERE schemaname='public' AND tablename='upload_history') AS history_rls_enabled,
+  EXISTS (SELECT 1 FROM valid_unique_indexes WHERE table_name='slips'
+    AND columns_sorted='bank_account,month,year') AS unique_slip_owner_period,
+  EXISTS (SELECT 1 FROM valid_unique_indexes WHERE table_name='upload_history'
+    AND columns_sorted='month,year') AS unique_history_period,
   has_table_privilege('anon','public.slips','SELECT') AS anon_slips_read,
   has_table_privilege('anon','public.slips','INSERT') AS anon_slips_insert,
   has_table_privilege('anon','public.slips','UPDATE') AS anon_slips_update,
@@ -38,6 +55,14 @@ SELECT
   has_table_privilege('anon','public.upload_history','INSERT') AS anon_history_insert,
   has_table_privilege('anon','public.upload_history','UPDATE') AS anon_history_update,
   has_table_privilege('anon','public.upload_history','DELETE') AS anon_history_delete,
+  has_table_privilege('authenticated','public.slips','SELECT') AS authenticated_slips_read,
+  has_table_privilege('authenticated','public.slips','INSERT') AS authenticated_slips_insert,
+  has_table_privilege('authenticated','public.slips','UPDATE') AS authenticated_slips_update,
+  has_table_privilege('authenticated','public.slips','DELETE') AS authenticated_slips_delete,
+  has_table_privilege('authenticated','public.upload_history','SELECT') AS authenticated_history_read,
+  has_table_privilege('authenticated','public.upload_history','INSERT') AS authenticated_history_insert,
+  has_table_privilege('authenticated','public.upload_history','UPDATE') AS authenticated_history_update,
+  has_table_privilege('authenticated','public.upload_history','DELETE') AS authenticated_history_delete,
   (SELECT public FROM storage.buckets WHERE id='slips') AS slips_bucket_public,
   (SELECT COUNT(*) FROM storage.objects WHERE bucket_id='slips') AS storage_object_count,
   (SELECT COUNT(*) FROM public.upload_history h
