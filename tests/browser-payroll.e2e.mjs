@@ -82,22 +82,18 @@ async function printablePdf(_browser, layout, rosterPeople, wrongPosition = fals
 }
 
 async function makeSandboxContext(browser, state, personnel = persons) {
-  const rosterCsv = [
-    ["ชื่อและนามสกุล", "ตำแหน่ง", "เลขบัญชี", "รายการรายรับ (เลขตำแหน่ง)"],
-    ...personnel.map(p => [p.name, "ครู", p.account, p.position]),
-  ].map(r => r.join(",")).join("\r\n");
   setMockState(state);
   const context = await browser.newContext({ acceptDownloads: true });
+  await context.route("**/api/admin/roster", async route => {
+    // Browser-fixture response only; the real authenticated API is independently
+    // tested against localhost without this Playwright interception.
+    return route.fulfill({ status: 200, contentType: "application/json",
+      body: JSON.stringify({ roster: personnel.map(p => ({
+        name: p.name, bankAccount: p.account, positionNumber: p.position,
+      })) }) });
+  });
   await context.route(/https:\/\/(example\.supabase\.co|docs\.google\.com)\//, async route => {
-    const request = route.request();
-    if (new URL(request.url()).hostname === "docs.google.com") {
-      if (request.method() === "OPTIONS")
-        return route.fulfill({ status: 204, headers });
-      return route.fulfill({ status: 200,
-        headers: { ...headers, "content-type": "text/csv;charset=utf-8" },
-        body: rosterCsv });
-    }
-    throw new Error("Browser attempted direct Supabase access");
+    throw new Error("Browser attempted to reach external payroll data source");
   });
   const login = await context.request.post(base + "/api/auth", {
     headers: { Origin: base }, data: { password: "synthetic-admin-password-do-not-use" },
