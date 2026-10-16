@@ -106,6 +106,17 @@ async function call(path, { method = "POST", body, admin = false } = {}) {
 }
 
 async function startPrivateNext() {
+  // Do not accidentally test an unrelated service already occupying this port.
+  let occupied = false;
+  try {
+    await fetch(ORIGIN + "/api/auth", {
+      signal: AbortSignal.timeout(1000), cache: "no-store",
+    });
+    occupied = true;
+  } catch { /* nothing listening on this private test port */ }
+  if (occupied) {
+    throw new Error("Private sandbox port 3137 is occupied; refusing to use an existing server");
+  }
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) =>
     !/SUPABASE|^NEXT_PUBLIC_|^ADMIN_|^PAYROLL_|^STAFF_|^LINE_|^APP_ORIGIN$|^VERCEL/.test(key)));
   Object.assign(env, {
@@ -303,6 +314,12 @@ try {
     assert.equal(result.getPageCount(),1);
     assert.equal(Buffer.compare(file.data, [aPdf,bPdf][i]),0, "owner-scoped exact bytes");
   }
+
+  const unknownAccount = "8" + String(seed).padStart(9, "0");
+  const outsider = await call("/api/payroll/pdf", {
+    body: { bankAccount: unknownAccount, ...published },
+  });
+  assert.equal(outsider.status, 404, "different account cannot retrieve these synthetic payslips");
 
   // The Storage bucket remains private; this is a separate synthetic object.
   const storage = await db.storage.from("slips").upload(storagePath,aPdf, {
