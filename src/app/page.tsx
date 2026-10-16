@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, Download, FileText, AlertCircle, Settings, X, Lock, Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
+import Image from "next/image";
 
 const ALL_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -243,9 +244,12 @@ export default function Home() {
 
       <div className="w-full max-w-xl z-10 flex flex-col items-center flex-1">
         <div className="text-center mb-10 flex flex-col items-center w-full mt-2">
-          <img 
-            src="https://i.postimg.cc/8kKrvnfY/removebg-preview.png" 
-            alt="โลโก้ศูนย์การศึกษาพิเศษ ประจำจังหวัดลำปาง" 
+          <Image
+            src="https://i.postimg.cc/8kKrvnfY/removebg-preview.png"
+            alt="โลโก้ศูนย์การศึกษาพิเศษ ประจำจังหวัดลำปาง"
+            width={96}
+            height={96}
+            unoptimized
             className="w-24 h-24 object-contain mb-6 drop-shadow-md"
           />
           <h1 className="text-3xl md:text-4xl font-bold mb-3 text-slate-800 leading-tight">
