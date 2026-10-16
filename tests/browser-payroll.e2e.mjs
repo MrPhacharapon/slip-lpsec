@@ -102,7 +102,7 @@ async function makeSandboxContext(browser, state, personnel = persons) {
   return context;
 }
 
-async function submitOnAdmin(context, pdf, month = "กันยายน") {
+async function submitOnAdmin(context, pdf, month = "กันยายน", localRosterCsv = null) {
   const page = await context.newPage();
   const messages = [];
   page.on("dialog", async dialog => {
@@ -121,6 +121,12 @@ async function submitOnAdmin(context, pdf, month = "กันยายน") {
   await page.locator("#pdf-upload").setInputFiles({
     name: "fictional-payroll.pdf", mimeType: "application/pdf", buffer: pdf,
   });
+  if (localRosterCsv !== null) {
+    await page.getByLabel("ไฟล์ CSV ทะเบียนบุคลากร (ไม่บังคับ)").setInputFiles({
+      name: "SYNTHETIC_ONLY_roster.csv",
+      mimeType: "text/csv", buffer: Buffer.from(localRosterCsv),
+    });
+  }
   await page.getByRole("button", { name: "อัพโหลดไฟล์" }).click();
   return { page, messages, errors };
 }
@@ -656,6 +662,31 @@ async function main() {
         assert.ok(result.messages.some(s => s.includes("หน้าสุดท้าย")));
         assert.deepEqual(result.errors, []);
         await result.page.close();
+      } finally { await context.close(); }
+    }
+
+    // Local private CSV can replace the server roster without any Google
+    // Sheets request. The original CSV stays within the admin browser.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        await context.route("**/api/admin/roster", route =>
+          route.fulfill({ status: 503, contentType: "application/json",
+            body: JSON.stringify({ error: "simulated server roster outage" }) }));
+        const privateCsv = [
+          ["ชื่อ-นามสกุล", "ตำแหน่ง", "เลขที่บัญชี", "เลขตำแหน่ง"],
+          ...persons.map(p => [p.name, "ครู", p.account, p.position]),
+        ].map(row => row.join(",")).join("\r\n");
+        const pdf = await printablePdf(browser, "B", persons);
+        const { page, errors, messages } = await submitOnAdmin(
+          context, pdf, "กันยายน", privateCsv);
+        await awaitUploadSuccess(page, messages, errors);
+        assert.equal(state.rows.length, 3);
+        assert.equal(state.history.length, 1);
+        assert.deepEqual(errors, []);
+        await page.close();
+        console.log("PASS local-only CSV roster: upload works without server Sheet access.");
       } finally { await context.close(); }
     }
 
