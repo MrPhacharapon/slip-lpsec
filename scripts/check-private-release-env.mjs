@@ -31,14 +31,24 @@ function validate(env) {
       if (!env[key] || env[key].length < minimum) errors.push(key);
     }
   }
-  // Production must never skip the staff directory. The isolated test
-  // environment must never silently contact the actual staff sheet.
-  if ((stage === "production" && env.STAFF_DIRECTORY_DISABLED === "true") ||
-      (stage === "test" && env.STAFF_DIRECTORY_DISABLED !== "true")) {
-    errors.push("STAFF_DIRECTORY_DISABLED");
+  // Local CSV mode never accesses a public Google roster at runtime; Admin
+  // selects a fresh private CSV for each upload. Server Sheet is the legacy
+  // default, requiring the private server-only Sheet ID.
+  const rosterMode = env.PAYROLL_ROSTER_MODE || "server_sheet";
+  if (!["server_sheet", "local_csv"].includes(rosterMode)) {
+    errors.push("PAYROLL_ROSTER_MODE");
   }
-  if (stage !== "test" || env.STAFF_DIRECTORY_DISABLED !== "true") {
-    if (!env.STAFF_SHEET_ID?.trim()) errors.push("STAFF_SHEET_ID");
+  if (stage === "test") {
+    if (env.STAFF_DIRECTORY_DISABLED !== "true") {
+      errors.push("STAFF_DIRECTORY_DISABLED");
+    }
+  } else if (stage === "production") {
+    if (rosterMode === "local_csv") {
+      if (env.STAFF_DIRECTORY_DISABLED !== "true") errors.push("STAFF_DIRECTORY_DISABLED");
+    } else {
+      if (env.STAFF_DIRECTORY_DISABLED === "true") errors.push("STAFF_DIRECTORY_DISABLED");
+      if (!env.STAFF_SHEET_ID?.trim()) errors.push("STAFF_SHEET_ID");
+    }
   }
   if (!["production", "test"].includes(stage)) errors.push("PAYROLL_RELEASE_TARGET");
   if ((stage === "production" && env.SUPABASE_URL !== EXPECTED_PRODUCTION) ||
