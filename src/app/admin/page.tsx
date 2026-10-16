@@ -6,9 +6,7 @@ import { UploadCloud, Settings, FileText, CheckCircle2, History, Trash2, GripVer
 import { PDFDocument } from 'pdf-lib';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import type { DropResult } from '@hello-pangea/dnd';
-// @ts-expect-error - papaparse has no bundled declarations in this project
-import Papa from 'papaparse';
-import { parseRoster, identifyPageSlips, assertUniquePeriod, assertSlipDocumentLayout, validateSlipPageLayout } from "@/lib/slip-validation";
+import { identifyPageSlips, assertUniquePeriod, assertSlipDocumentLayout, validateSlipPageLayout } from "@/lib/slip-validation";
 import { ensurePdfJsMapCompatibility } from "@/lib/pdfjs-compat";
 import type { PdfToken, RosterPerson, PageRegion } from "@/lib/slip-validation";
 
@@ -40,7 +38,6 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const router = useRouter();
 
-  const [sheetUrl, setSheetUrl] = useState(process.env.NEXT_PUBLIC_STAFF_SHEET_URL || "");
   const [selectedMonth, setSelectedMonth] = useState("มกราคม");
   const [selectedYear, setSelectedYear] = useState("2569");
   const [file, setFile] = useState<File | null>(null);
@@ -102,15 +99,14 @@ export default function AdminPage() {
     setIsUploading(true);
     setUploadSuccess(false);
     try {
-      const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-      if (!match) throw new Error("ลิงก์ทะเบียน Google Sheet ไม่ถูกต้อง");
-      const response = await fetch(
-        "https://docs.google.com/spreadsheets/d/" + match[1] + "/export?format=csv&gid=0",
-        { cache: "no-store" }
-      );
-      if (!response.ok) throw new Error("อ่านทะเบียนบุคลากรไม่ได้");
-      const rawRoster = await response.text();
-      const roster = parseRoster(Papa.parse<string[]>(rawRoster, { skipEmptyLines: true }).data);
+      // Roster is fetched only through the authenticated Next.js server.
+      // The private Google Sheet ID must never be exposed to public browsers.
+      const response = await fetch("/api/admin/roster", { cache: "no-store" });
+      if (!response.ok) throw new Error("อ่านทะเบียนบุคลากรไม่ได้ กรุณาตรวจการตั้งค่าเซิร์ฟเวอร์");
+      const { roster } = await response.json() as { roster: RosterPerson[] };
+      if (!Array.isArray(roster) || roster.length === 0) {
+        throw new Error("ไม่พบทะเบียนบุคลากรที่ผ่านการตรวจสอบ");
+      }
 
       if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) {
         throw new Error("รองรับเฉพาะไฟล์ PDF");
@@ -429,17 +425,11 @@ export default function AdminPage() {
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-2">ลิงก์ Google Sheet (รายชื่อและเลขบัญชี)</label>
-                  <input
-                    type="url"
-                    className="glass-input w-full text-sm bg-white"
-                    value={sheetUrl}
-                    onChange={(e) => setSheetUrl(e.target.value)}
-                    placeholder="https://docs.google.com/..."
-                  />
+                  <label className="block text-xs font-medium text-slate-500 mb-2">ทะเบียนบุคลากร</label>
+                  <p className="text-sm text-slate-700">ใช้ทะเบียนที่กำหนดไว้ในระบบโดยผู้ดูแลเซิร์ฟเวอร์</p>
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  ระบบจะอ่านข้อมูลพนักงานเพื่อใช้แยกไฟล์อัตโนมัติจากลิงก์นี้
+                  ระบบจะอ่านข้อมูลจากทะเบียนส่วนตัวผ่านเซิร์ฟเวอร์ที่ตรวจสิทธิ์ Admin ก่อนแยกไฟล์อัตโนมัติ
                 </p>
               </div>
             </div>
