@@ -55,6 +55,7 @@ const fixtureName = "synthetic-" + runId + ".pdf";
 const storagePath = "qa/synthetic-" + runId + ".pdf";
 const startedPeriods = [];
 const issues = [];
+let assertionsCompleted = false;
 let server = null;
 let adminCookie = null;
 let storageUploaded = false;
@@ -221,6 +222,8 @@ try {
   if (anonymous) {
     const s = await anonymous.from("slips").select("pdf_base64").limit(1);
     assert.ok(s.error, "Public Supabase role cannot read payroll PDF data");
+  } else {
+    console.log("SKIP: anonymous RLS and private Storage checks (TEST_SUPABASE_PUBLISHABLE_KEY not set).");
   }
 
   server = await startPrivateNext();
@@ -352,7 +355,8 @@ try {
       confirmation: `ลบสลิปที่เผยแพร่ ${published.month} ${published.year}` },
   });
   assert.equal(missingBackup.status,400);
-  console.log("PASS: real Next.js APIs + isolated Supabase (synthetic stage, recovery, publish, private PDF, backup gate).");
+  // Do not report PASS until the finally block has verified cleanup.
+  assertionsCompleted = true;
 } finally {
   for (const period of startedPeriods.reverse()) {
     try { await recoverPeriod(period); }
@@ -369,4 +373,8 @@ try {
   if (issues.length) {
     throw new Error("Sandbox-only cleanup incomplete. " + issues.join("; "));
   }
+}
+
+if (assertionsCompleted) {
+  console.log("PASS: real Next.js APIs + isolated Supabase (synthetic stage, recovery, publish, owner-scoped PDF, backup gate) AND cleanup.");
 }
