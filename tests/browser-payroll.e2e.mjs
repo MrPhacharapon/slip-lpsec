@@ -690,6 +690,28 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // A private CSV with an incorrect position must reject the complete
+    // source file; even a readable PDF may never bypass roster ownership.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const wrongCsv = [
+          ["ชื่อ-นามสกุล", "ตำแหน่ง", "เลขบัญชี", "เลขตำแหน่ง"],
+          [persons[0].name, "ครู", persons[0].account, "9999999"],
+        ].map(row => row.join(",")).join("\r\n");
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const { page, messages, errors } = await submitOnAdmin(
+          context, pdf, "กันยายน", wrongCsv);
+        await until(() => messages.length > 0, "incorrect CSV ownership rejection");
+        assert.equal(state.rows.length, 0);
+        assert.equal(state.history.length, 0);
+        assert.deepEqual(errors, []);
+        await page.close();
+        console.log("PASS negative: private CSV with wrong position refuses whole upload.");
+      } finally { await context.close(); }
+    }
+
     // Mismatched position: fail closed; nothing written.
     {
       const state = { rows: [], history: [] };
