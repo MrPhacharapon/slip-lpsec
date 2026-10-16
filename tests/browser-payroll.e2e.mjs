@@ -464,6 +464,36 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // Publishing cannot be undone by a failure to refresh the history UI.
+    // Show success and a separate refresh warning, never a retry-upload error.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        await context.route("**/api/admin/history", async route => {
+          if (route.request().method() === "GET" && state.history.length > 0) {
+            return route.fulfill({
+              status: 503, contentType: "application/json",
+              body: JSON.stringify({ error: "synthetic history refresh failure" }),
+            });
+          }
+          return route.continue();
+        });
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const { page, errors, messages } = await submitOnAdmin(context, pdf);
+        await awaitUploadSuccess(page, messages, errors);
+        await until(() => messages.some(m =>
+          m.includes("เผยแพร่สลิปสำเร็จแล้ว แต่โหลดประวัติไม่สำเร็จ")),
+          "history refresh failure is a warning after publication");
+        assert.equal(state.rows.length, 1, "published slip stays stored");
+        assert.equal(state.history.length, 1, "publication is not rolled back");
+        assert.ok(!messages.some(m => m.includes("ตรวจสอบเอกสารไม่สำเร็จ")));
+        assert.deepEqual(errors, []);
+        await page.close();
+        console.log("PASS post-publish history failure: success preserved without retry guidance.");
+      } finally { await context.close(); }
+    }
+
     // A: traditional single slip, upload + retrieval.
     {
       const state = { rows: [], history: [] };
