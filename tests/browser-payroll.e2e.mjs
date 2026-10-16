@@ -528,6 +528,57 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // Drag-and-drop history order must be separate from the actual
+    // published timestamp, and a stale/partial reorder must be atomic.
+    {
+      const originals = [
+        { id: "synthetic-old", month: "มกราคม", year: "2569",
+          file_name: "fictional-old.pdf", storage_path: null,
+          created_at: "2026-01-01T00:00:00Z" },
+        { id: "synthetic-new", month: "กุมภาพันธ์", year: "2569",
+          file_name: "fictional-new.pdf", storage_path: null,
+          created_at: "2026-02-01T00:00:00Z" },
+      ];
+      const state = { rows: [], history: originals.map(x => ({ ...x })) };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const page = await context.newPage();
+        await page.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await page.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
+        const initial = await page.evaluate(async () =>
+          (await (await fetch("/api/admin/history")).json()).history.map(x => x.id));
+        assert.deepEqual(initial, ["synthetic-new", "synthetic-old"],
+          "unreordered history retains chronological display");
+        const updated = await page.evaluate(async () => {
+          const res = await fetch("/api/admin/history", {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: ["synthetic-old", "synthetic-new"] }),
+          });
+          return { status: res.status, body: await res.json() };
+        });
+        assert.equal(updated.status, 200, JSON.stringify(updated.body));
+        assert.equal(updated.body.success, true);
+        const reordered = await page.evaluate(async () =>
+          (await (await fetch("/api/admin/history")).json()).history.map(x => x.id));
+        assert.deepEqual(reordered, ["synthetic-old", "synthetic-new"],
+          "manual order differs from original chronology");
+        assert.deepEqual(state.history.map(x => x.created_at),
+          originals.map(x => x.created_at), "audit timestamps unchanged");
+        const stale = await page.evaluate(async () => {
+          const res = await fetch("/api/admin/history", {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ids: ["synthetic-old"] }),
+          });
+          return res.status;
+        });
+        assert.equal(stale, 409, "partial history reorder must fail closed");
+        assert.deepEqual(state.history.map(x => x.display_order), [0, 1],
+          "failed reorder must leave all positions unchanged");
+        await page.close();
+        console.log("PASS history reorder: atomic positions without changing created_at.");
+      } finally { await context.close(); }
+    }
+
     // A: traditional single slip, upload + retrieval.
     {
       const state = { rows: [], history: [] };
