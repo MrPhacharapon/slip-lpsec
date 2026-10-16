@@ -75,7 +75,7 @@ test("private PDF.js rejects incorrect position in synthetic PDF at page 1", () 
     const lines = result.stdout.trim().split(/\r?\n/).filter(l => l.startsWith("{"))
       .map(l => JSON.parse(l));
     assert.deepEqual(lines, [
-      { document: 1, status: "FAIL", page: 1 },
+      { document: 1, status: "FAIL", page: 1, stage: "PAGE_VALIDATE" },
       { result: "FAIL", documents: 1, failedDocuments: 1, pages: 0, slips: 0 },
     ]);
     assert.ok(!result.stdout.includes("1234567890"));
