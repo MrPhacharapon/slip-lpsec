@@ -55,8 +55,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ status: 'ok' });
-  } catch (error) {
-    console.error('Webhook Error:', error);
+  } catch {
+    // Never log the raw LINE webhook body or arbitrary provider errors.
+    console.error('LINE webhook processing failed');
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
