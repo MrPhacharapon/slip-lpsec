@@ -11,6 +11,8 @@
 - `SUPABASE_SERVICE_ROLE_KEY`: ต้องมีค่าเฉพาะฝั่งเซิร์ฟเวอร์ ห้ามเติม `NEXT_PUBLIC_`
 - `NEXT_PUBLIC_SUPABASE_URL`: หากมีต้องตรงกับ `SUPABASE_URL` เพื่อป้องกันสลับโครงการ
 - `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, `PAYROLL_RATE_LIMIT_SECRET`: ต้องมีความยาวขั้นต่ำและไม่ใช้ซ้ำ
+- Production ต้องตั้งค่า `CRON_SECRET`, `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN` และ `LINE_GROUP_ID` สำหรับเส้นทาง Cron และ LINE ที่มีอยู่แล้วในระบบ และไม่ใช้ค่าลับซ้ำกัน
+- Test ต้องใช้ `STAFF_DIRECTORY_DISABLED=true` เพื่อไม่ดึงทะเบียนบุคลากรจริง ส่วน Production ต้องไม่ตั้งค่านี้เป็น `true`
 - `APP_ORIGIN`: ต้องเป็น HTTPS Origin ของเว็บไซต์ที่ใช้งาน (ไม่ใช่ HTTP หรือ URL ที่มี path/credential)
 - `STAFF_SHEET_ID`: สำหรับ Production ต้องระบุทะเบียนจริงและใช้ ID ที่มีรูปแบบถูกต้อง; Test เท่านั้นที่ยกเว้นได้หาก `STAFF_DIRECTORY_DISABLED=true`
 
