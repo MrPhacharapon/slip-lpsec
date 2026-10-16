@@ -81,5 +81,9 @@ test("offline verifier rejects extra files, symlinks and manifest inside source 
     rmSync(join(source, "symlink.txt"));
     assert.equal(run("verify", source, manifest).status, 0);
     assert.equal(run("create", source, join(source, "unsafe-manifest.json")).status, 1);
+    assert.equal(run("create", source, join(process.cwd(), "private-manifest.json")).status, 1,
+      "never create a sensitive manifest inside the Git checkout");
+    assert.equal(run("create", join(process.cwd(), "scripts"), manifest).status, 1,
+      "never inventory any repository directory as a payroll backup");
   });
 });
