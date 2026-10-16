@@ -23,6 +23,12 @@ function validate(env) {
     if (!env[key] || !env[key].trim()) errors.push(key);
   }
   const stage = env.PAYROLL_RELEASE_TARGET;
+  // Production must never skip the staff directory. The isolated test
+  // environment must never silently contact the actual staff sheet.
+  if ((stage === "production" && env.STAFF_DIRECTORY_DISABLED === "true") ||
+      (stage === "test" && env.STAFF_DIRECTORY_DISABLED !== "true")) {
+    errors.push("STAFF_DIRECTORY_DISABLED");
+  }
   if (stage !== "test" || env.STAFF_DIRECTORY_DISABLED !== "true") {
     if (!env.STAFF_SHEET_ID?.trim()) errors.push("STAFF_SHEET_ID");
   }
