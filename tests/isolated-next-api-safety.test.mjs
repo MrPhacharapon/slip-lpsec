@@ -52,3 +52,18 @@ test("success is reported only after the cleanup block", () => {
   assert.match(source.slice(0, cleanupIndex), /assertionsCompleted = true;/);
   assert.doesNotMatch(source.slice(0, cleanupIndex), /console\.log\("PASS: real Next\.js APIs/);
 });
+
+test("sandbox runner checks SQL and private Storage after cleanup", () => {
+  const source = readFileSync(script, "utf8");
+  assert.match(source, /async function verifyCleanup\(\)/);
+  assert.match(source, /await ensureOwnRecords\(period, allowedAccounts\)/);
+  assert.match(source, /db\.storage\.from\("slips"\)\.list\("qa"/);
+  assert.match(source, /try \{ await verifyCleanup\(\); \}/);
+  assert.ok(source.lastIndexOf("await verifyCleanup()") < source.lastIndexOf('console.log("PASS: real Next.js APIs'));
+});
+
+test("optional anonymous check distinguishes permission denial from invalid API key", () => {
+  const source = readFileSync(script, "utf8");
+  assert.match(source, /s\.error\?\.code, "42501"/);
+  assert.match(source, /SKIP: anonymous RLS and private Storage checks/);
+});
