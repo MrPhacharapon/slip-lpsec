@@ -24,9 +24,11 @@ function validate(env) {
   }
   const stage = env.PAYROLL_RELEASE_TARGET;
   if (stage === "production") {
-    for (const key of ["CRON_SECRET", "LINE_CHANNEL_SECRET",
-      "LINE_CHANNEL_ACCESS_TOKEN", "LINE_GROUP_ID"]) {
-      if (!env[key] || env[key].length < 20) errors.push(key);
+    for (const [key, minimum] of Object.entries({
+      CRON_SECRET: 32, LINE_CHANNEL_SECRET: 20,
+      LINE_CHANNEL_ACCESS_TOKEN: 20, LINE_GROUP_ID: 20,
+    })) {
+      if (!env[key] || env[key].length < minimum) errors.push(key);
     }
   }
   // Production must never skip the staff directory. The isolated test
