@@ -12,9 +12,10 @@
 - `NEXT_PUBLIC_SUPABASE_URL`: หากมีต้องตรงกับ `SUPABASE_URL` เพื่อป้องกันสลับโครงการ
 - `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, `PAYROLL_RATE_LIMIT_SECRET`: ต้องมีความยาวขั้นต่ำและไม่ใช้ซ้ำ
 - Production ต้องตั้งค่า `CRON_SECRET`, `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN` และ `LINE_GROUP_ID` สำหรับเส้นทาง Cron และ LINE ที่มีอยู่แล้วในระบบ และไม่ใช้ค่าลับซ้ำกัน
-- Test ต้องใช้ `STAFF_DIRECTORY_DISABLED=true` เพื่อไม่ดึงทะเบียนบุคลากรจริง ส่วน Production ต้องไม่ตั้งค่านี้เป็น `true`
+- Test ต้องใช้ `STAFF_DIRECTORY_DISABLED=true` เพื่อไม่ดึงทะเบียนบุคลากรจริง ส่วน Production ให้กำหนดตาม `PAYROLL_ROSTER_MODE`: `server_sheet` ต้องเปิดการอ่านทะเบียน และ `local_csv` ต้องปิดการอ่านทะเบียน
 - `APP_ORIGIN`: ต้องเป็น HTTPS Origin ของเว็บไซต์ที่ใช้งาน (ไม่ใช่ HTTP หรือ URL ที่มี path/credential)
-- `STAFF_SHEET_ID`: สำหรับ Production ต้องระบุทะเบียนจริงและใช้ ID ที่มีรูปแบบถูกต้อง; Test เท่านั้นที่ยกเว้นได้หาก `STAFF_DIRECTORY_DISABLED=true`
+- `PAYROLL_ROSTER_MODE`: `server_sheet` (ค่าเริ่มต้น) หรือ `local_csv` (นำเข้า CSV ส่วนตัวทุกครั้งที่ Admin อัปโหลด); หากใช้ `local_csv` จะไม่บังคับ `STAFF_SHEET_ID` แต่ตำแหน่งที่เคยอ่านจาก Sheet อาจไม่แสดง
+- `STAFF_SHEET_ID`: ต้องระบุเมื่อใช้ `server_sheet` ใน Production; Test และ Production `local_csv` ไม่บังคับ แต่ถ้าระบุยังต้องเป็น ID ที่มีรูปแบบถูกต้อง
 
 ## วิธีตรวจโดยไม่เปิดเผย Secret
 
