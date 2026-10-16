@@ -16,14 +16,14 @@ jobs:
       NEXT_PUBLIC_STAFF_SHEET_URL: https://docs.google.com/spreadsheets/d/TEST_ROSTER_FAKE_DOC_NOT_PERSONAL_0001/edit?gid=0
       CI: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: npm
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
       # No production credentials, deploy command, or data access.
