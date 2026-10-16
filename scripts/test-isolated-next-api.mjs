@@ -66,6 +66,18 @@ function requireData(result, label) {
   return result.data;
 }
 
+async function assertEntireSandboxEmpty() {
+  // In particular, never attempt an all-history reorder or any Test
+  // write on a project containing records from another run/operator.
+  const [slips, histories] = await Promise.all([
+    db.from("slips").select("id", { count: "exact", head: true }),
+    db.from("upload_history").select("id", { count: "exact", head: true }),
+  ]);
+  if (slips.error || histories.error || slips.count !== 0 || histories.count !== 0) {
+    throw new Error("Private Test project is not empty; no synthetic writes permitted");
+  }
+}
+
 async function assertUnused(period) {
   const [slips, history] = await Promise.all([
     db.from("slips").select("id").eq("month", period.month).eq("year", period.year).limit(1),
@@ -232,6 +244,8 @@ async function verifyCleanup() {
 }
 
 try {
+  // Require the entire Test project to be clean before any synthetic write.
+  await assertEntireSandboxEmpty();
   // Inspect both target periods before allowing any write to the sandbox.
   await assertUnused(staged);
   await assertUnused(published);
