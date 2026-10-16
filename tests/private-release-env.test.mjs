@@ -136,3 +136,29 @@ test("sheet ID format must match the actual staff-directory loader", () => {
     assert.ok(JSON.parse(result.stdout).missingOrInvalid.includes("STAFF_SHEET_ID"));
   }
 });
+
+test("private CSV Production mode does not require a public Sheet ID", () => {
+  const result = check({
+    PAYROLL_RELEASE_TARGET: "production",
+    PAYROLL_ROSTER_MODE: "local_csv",
+    STAFF_DIRECTORY_DISABLED: "true",
+    STAFF_SHEET_ID: null,
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+  });
+  assert.equal(result.status, 0, result.stdout);
+});
+test("private CSV mode refuses staff directory access and unknown modes", () => {
+  const prod = {
+    PAYROLL_RELEASE_TARGET: "production",
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+  };
+  const wrong = check({ ...prod, PAYROLL_ROSTER_MODE: "local_csv",
+    STAFF_DIRECTORY_DISABLED: "false", STAFF_SHEET_ID: null });
+  assert.equal(wrong.status, 1);
+  assert.ok(JSON.parse(wrong.stdout).missingOrInvalid.includes("STAFF_DIRECTORY_DISABLED"));
+  const invalid = check({ ...prod, PAYROLL_ROSTER_MODE: "anything" });
+  assert.equal(invalid.status, 1);
+  assert.ok(JSON.parse(invalid.stdout).missingOrInvalid.includes("PAYROLL_ROSTER_MODE"));
+});
