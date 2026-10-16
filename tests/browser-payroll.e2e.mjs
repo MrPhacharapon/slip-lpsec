@@ -252,6 +252,30 @@ async function main() {
         headers: { Origin: base }, data: { month: "ตุลาคม", year: "2569" },
       });
       assert.equal(forbiddenLine.status(), 401, "public visitors cannot trigger LINE payroll announcements");
+
+      // A staff-facing account-only lookup is not a cross-origin public API.
+      // These requests must fail before database access or rate counting.
+      for (const route of ["/api/payroll/search", "/api/payroll/pdf"]) {
+        const rejected = await visitor.request.post(base + route, {
+          headers: { Origin: "https://cross-site.invalid" },
+          data: { bankAccount: "9000000123", month: "มกราคม", year: "2569" },
+        });
+        assert.equal(rejected.status(), 403, "foreign Origin blocked: " + route);
+      }
+      const forbiddenOriginal = await visitor.request.get(base +
+        "/api/admin/storage?path=synthetic.pdf");
+      assert.equal(forbiddenOriginal.status(), 401,
+        "original source PDF cannot be downloaded by an anonymous visitor");
+      const forbiddenStage = await visitor.request.post(base + "/api/admin/slips", {
+        headers: { Origin: base }, data: { rows: [] },
+      });
+      assert.equal(forbiddenStage.status(), 401, "anonymous client cannot stage slips");
+      const forbiddenPublish = await visitor.request.post(base + "/api/admin/finalize", {
+        headers: { Origin: base },
+        data: { month: "มกราคม", year: "2569", expectedCount: 1, fileName: "fake.pdf" },
+      });
+      assert.equal(forbiddenPublish.status(), 401, "anonymous client cannot publish");
+      console.log("PASS security boundaries: anonymous Admin access and cross-origin staff PDF/search refused.");
     } finally { await visitor.close(); }
 
 
@@ -264,6 +288,22 @@ async function main() {
       try {
         await admin.goto(base + "/admin", { waitUntil: "domcontentloaded" });
         await admin.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
+
+        // Even a valid signed Admin cookie cannot authorize a cross-site
+        // mutation: same-origin validation is a separate required control.
+        for (const route of ["/api/admin/preflight", "/api/admin/finalize",
+          "/api/admin/slips", "/api/send-line"]) {
+          const rejected = await context.request.post(base + route, {
+            headers: { Origin: "https://cross-site.invalid" },
+            data: route.endsWith("/slips") ? { rows: [] } :
+              { month: "ตุลาคม", year: "2569", fileName: "fake.pdf", expectedCount: 1 },
+          });
+          assert.equal(rejected.status(), 403,
+            "signed Admin cookie must not bypass Origin check: " + route);
+        }
+        assert.equal(state.rows.length, 0, "cross-site mutation wrote no staged slips");
+        console.log("PASS CSRF: signed Admin session cannot mutate from foreign Origin.");
+
         const pdfDocument = await PDFDocument.create();
         pdfDocument.addPage([1071, 792]);
         pdfDocument.addPage([1071, 792]);
