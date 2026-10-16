@@ -98,7 +98,7 @@ export default function Home() {
       const blob = await requestPdf(month, year);
       const url = URL.createObjectURL(blob);
       if (tab) tab.location.assign(url);
-      else window.location.href = url;
+      else window.location.assign(url);
     } catch {
       tab?.close();
       alert("ไม่สามารถเปิดดูไฟล์ได้");
@@ -217,7 +217,7 @@ export default function Home() {
       } else {
         setAdminError(data.error || "รหัสผ่านไม่ถูกต้อง");
       }
-    } catch (error) {
+    } catch {
       setAdminError("เกิดข้อผิดพลาดในการเชื่อมต่อ");
     } finally {
       setIsCheckingAuth(false);
