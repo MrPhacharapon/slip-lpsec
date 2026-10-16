@@ -44,9 +44,14 @@ async function readRoster(file) {
 
 async function checkPdf(file, roster) {
   let stage = "FILE_READ";
-  const bytes = await readFile(file);
-  if (bytes.length < 100 || bytes.length > 100_000_000)
-    throw Error("invalid pdf file size");
+  let bytes;
+  try {
+    bytes = await readFile(file);
+    if (bytes.length < 100 || bytes.length > 100_000_000)
+      throw Error("invalid pdf file size");
+  } catch {
+    throw Object.assign(Error("invalid PDF input"), { stage: "FILE_READ" });
+  }
   stage = "DOCUMENT_LOAD";
   let task;
   let document;
@@ -101,12 +106,13 @@ async function checkPdf(file, roster) {
       singlePages, doublePages,
     };
   } catch (error) {
-    // Only a fixed stage label; never emit raw dependency errors or PDF text.
     if (error && typeof error === "object" && !error.stage) error.stage = stage;
     throw error;
   } finally {
-    if (document) await document.destroy();
-    else if (task) await task.destroy();
+    // Match the browser fixture's PDF.js loading-task lifecycle. Cleanup
+    // errors must not overwrite the original page/ownership failure.
+    try { if (task) await task.destroy(); }
+    catch { /* the loading task has already failed; preserve its result */ }
   }
 }
 
@@ -144,7 +150,8 @@ async function main() {
       process.stdout.write(JSON.stringify({
         document: i + 1, status: "FAIL",
         page: Number.isInteger(error?.page) ? error.page : null,
-        stage: typeof error?.stage === "string" ? error.stage : "UNKNOWN",
+        stage: ["FILE_READ", "DOCUMENT_LOAD", "PAGE_READ", "PAGE_VALIDATE",
+          "PERIOD_VALIDATE"].includes(error?.stage) ? error.stage : "UNKNOWN",
       }) + "\n");
     }
   }
