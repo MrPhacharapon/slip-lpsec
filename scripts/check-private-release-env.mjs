@@ -10,7 +10,7 @@ const REQUIRED_SECRET_LENGTHS = {
   ADMIN_SESSION_SECRET: 32,
   PAYROLL_RATE_LIMIT_SECRET: 32,
 };
-const REQUIRED_FIELDS = ["SUPABASE_URL", "APP_ORIGIN", "STAFF_SHEET_ID"];
+const REQUIRED_FIELDS = ["SUPABASE_URL", "APP_ORIGIN"];
 const EXPECTED_PRODUCTION = "https://cpwefjcpqykpxdumgogo.supabase.co";
 const EXPECTED_TEST = "https://dpaqvxtbpaduknergflm.supabase.co";
 
@@ -23,6 +23,9 @@ function validate(env) {
     if (!env[key] || !env[key].trim()) errors.push(key);
   }
   const stage = env.PAYROLL_RELEASE_TARGET;
+  if (stage !== "test" || env.STAFF_DIRECTORY_DISABLED !== "true") {
+    if (!env.STAFF_SHEET_ID?.trim()) errors.push("STAFF_SHEET_ID");
+  }
   if (!["production", "test"].includes(stage)) errors.push("PAYROLL_RELEASE_TARGET");
   if ((stage === "production" && env.SUPABASE_URL !== EXPECTED_PRODUCTION) ||
       (stage === "test" && env.SUPABASE_URL !== EXPECTED_TEST)) {
