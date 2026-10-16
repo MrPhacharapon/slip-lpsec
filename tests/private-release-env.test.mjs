@@ -122,3 +122,17 @@ test("Production rejects duplicated cron secret and rate limit key", () => {
   assert.equal(r.status, 1);
   assert.ok(JSON.parse(r.stdout).missingOrInvalid.includes("SECRET_REUSE"));
 });
+
+test("sheet ID format must match the actual staff-directory loader", () => {
+  for (const id of ["1234567890123456789", "x".repeat(101), "invalid%filename"]) {
+    const result = check({
+      PAYROLL_RELEASE_TARGET: "production",
+      SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+      NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+      STAFF_DIRECTORY_DISABLED: "false",
+      STAFF_SHEET_ID: id,
+    });
+    assert.equal(result.status, 1);
+    assert.ok(JSON.parse(result.stdout).missingOrInvalid.includes("STAFF_SHEET_ID"));
+  }
+});
