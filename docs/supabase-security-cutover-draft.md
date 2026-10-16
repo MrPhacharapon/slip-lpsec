@@ -15,7 +15,8 @@
 | ค่าที่ต้องกำหนด | ความหมาย | ข้อกำหนด |
 |---|---|---|
 | `SUPABASE_URL` | URL ของโครงการ Supabase | เก็บฝั่งเซิร์ฟเวอร์ |
-| `STAFF_SHEET_ID` | ID ทะเบียนบุคลากรใน Google Sheets | ต้องกำหนดโดยชัดเจน ห้ามใช้ค่าจาก Production โดยอัตโนมัติในระบบทดสอบ |
+| `STAFF_SHEET_ID` | ID ทะเบียนบุคลากรใน Google Sheets | จำเป็นเฉพาะเมื่อ Production ใช้ `PAYROLL_ROSTER_MODE=server_sheet`; ห้ามใช้ค่าจาก Production โดยอัตโนมัติในระบบทดสอบ |
+| `PAYROLL_ROSTER_MODE` | เลือกแหล่งทะเบียนบุคลากรสำหรับ Admin | `server_sheet` (ผ่าน API Admin) หรือ `local_csv` (เลือก CSV ในเครื่อง Admin ทุกครั้ง; ไม่ต้องเปิด Sheet สาธารณะ) |
 | `NEXT_PUBLIC_STAFF_SHEET_URL` | ลิงก์ทะเบียนที่แสดงในหน้า Admin | ใช้ลิงก์สมมติใน CI; สำหรับ Production ตั้งลิงก์จริงตอน Deploy หรือให้ผู้ดูแลกรอกเอง |
 | `LINE_CHANNEL_SECRET` | ความลับตรวจ HMAC ของ LINE Webhook | เก็บฝั่งเซิร์ฟเวอร์เท่านั้น ต้องตั้งค่าก่อนใช้ LINE Webhook; ไม่ใช่ LINE access token |
 | `STAFF_DIRECTORY_DISABLED` | ปิดการอ่านทะเบียนครูระหว่างทดสอบ | ตั้ง `true` ในโครงการทดสอบ เพื่อไม่อ่าน Google Sheets จริง |
