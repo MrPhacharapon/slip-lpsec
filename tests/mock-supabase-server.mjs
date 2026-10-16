@@ -65,12 +65,12 @@ export async function startMockSupabase() {
         const protectedFile = Boolean(String(history.storage_path ?? "").trim());
         const eligible = histories.length === 1 && slips.length >= 1 && slips.length <= 500 &&
           new Set(slips.map(r => r.bank_account)).size === slips.length && !protectedFile;
-        const payload = [
+        const snapshotMaterial = [
           history.id, month, year, history.file_name, history.created_at,
           ...slips.map(r => r.id + ":" + r.bank_account + ":" + r.pdf_base64).sort(),
         ].join("|");
         const snapshot = eligible
-          ? createHash("sha256").update(payload).digest("hex") : null;
+          ? createHash("sha256").update(snapshotMaterial).digest("hex") : null;
         if (url.pathname.endsWith("/inspect_published_payroll_deletion")) {
           res.writeHead(200, headers);
           res.end(JSON.stringify({
