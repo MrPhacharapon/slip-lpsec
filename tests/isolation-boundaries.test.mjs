@@ -4,10 +4,17 @@ import { readFileSync } from "node:fs";
 
 const get = path => readFileSync(path, "utf8");
 
-test("admin UI never preloads a real staff roster", () => {
+test("admin UI fetches its roster via authorized server, never public browser URL", () => {
   const admin = get("src/app/admin/page.tsx");
-  assert.match(admin, /useState\(process\.env\.NEXT_PUBLIC_STAFF_SHEET_URL \|\| ""\)/);
-  assert.doesNotMatch(admin, /useState\("https:\/\/docs\.google\.com\/spreadsheets\//);
+  assert.match(admin, /fetch\("\/api\/admin\/roster"/);
+  assert.doesNotMatch(admin, /NEXT_PUBLIC_STAFF_SHEET_URL/);
+  assert.doesNotMatch(admin, /docs\.google\.com\/spreadsheets/);
+  assert.doesNotMatch(admin, /sheetUrl/);
+  const api = get("src/app/api/admin/roster/route.ts");
+  assert.match(api, /requireAdmin\(req\)/);
+  assert.match(api, /STAFF_DIRECTORY_DISABLED/);
+  assert.match(api, /process\.env\.STAFF_SHEET_ID/);
+  assert.doesNotMatch(api, /req\.nextUrl\.searchParams/);
 });
 
 test("neither payroll UI uses browser Supabase access", () => {
@@ -24,8 +31,8 @@ test("staff directory has no hard-coded Google Sheets identifier fallback", () =
   assert.doesNotMatch(source, /const sheetId = process\.env\.STAFF_SHEET_ID\s*\|\|/);
 });
 
-test("CI uses a fictional roster URL", () => {
+test("CI does not supply a public staff roster URL or private payroll key", () => {
   const source = get(".github/workflows/payroll-pdf-validation.yml");
-  assert.match(source, /NEXT_PUBLIC_STAFF_SHEET_URL: https:\/\/docs\.google\.com\/spreadsheets\/d\/TEST_ROSTER_FAKE/);
+  assert.doesNotMatch(source, /NEXT_PUBLIC_STAFF_SHEET_URL:/);
   assert.doesNotMatch(source, /SUPABASE_SERVICE_ROLE_KEY:\s*[^\s#]+/);
 });
