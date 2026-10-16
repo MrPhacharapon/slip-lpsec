@@ -413,6 +413,57 @@ async function main() {
       } finally { await visitor.close(); }
     }
 
+    // An HTTP 200 is not sufficient evidence that a batch was saved.
+    // A proxy or buggy route must not cause premature publication.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        await context.route("**/api/admin/slips", async route => {
+          if (route.request().method() !== "POST") return route.continue();
+          return route.fulfill({
+            status: 200, contentType: "application/json",
+            body: JSON.stringify({ success: true, inserted: 0 }),
+          });
+        });
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const { page, errors, messages } = await submitOnAdmin(context, pdf);
+        await until(() => messages.some(m => m.includes("ไม่สามารถยืนยันจำนวนสลิปที่บันทึกได้")),
+          "uploader refuses false success with incorrect stage count");
+        assert.equal(await page.getByText("อัปโหลดสำเร็จ!").count(), 0);
+        assert.equal(state.rows.length, 0, "no staged records were acknowledged");
+        assert.equal(state.history.length, 0, "false stage success must not publish");
+        assert.deepEqual(errors, []);
+        await page.close();
+        console.log("PASS stage acknowledgment: false HTTP 200 cannot publish.");
+      } finally { await context.close(); }
+    }
+
+    // A finalize response lacking success:true must not show upload success.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        await context.route("**/api/admin/finalize", async route => {
+          if (route.request().method() !== "POST") return route.continue();
+          return route.fulfill({
+            status: 200, contentType: "application/json",
+            body: JSON.stringify({ success: false }),
+          });
+        });
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const { page, errors, messages } = await submitOnAdmin(context, pdf);
+        await until(() => messages.some(m => m.includes("ไม่สามารถยืนยันการเผยแพร่")),
+          "uploader refuses false finalize success");
+        assert.equal(await page.getByText("อัปโหลดสำเร็จ!").count(), 0);
+        assert.equal(state.rows.length, 1, "staged rows remain for manual review");
+        assert.equal(state.history.length, 0, "a false finalize response did not publish");
+        assert.deepEqual(errors, []);
+        await page.close();
+        console.log("PASS publication acknowledgment: false HTTP 200 is not success.");
+      } finally { await context.close(); }
+    }
+
     // A: traditional single slip, upload + retrieval.
     {
       const state = { rows: [], history: [] };
