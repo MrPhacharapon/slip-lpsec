@@ -297,6 +297,10 @@ try {
     admin:true, body: { ...published, fileName: fixtureName, expectedCount: 2 },
   });
   assert.equal(publish.status, 200, "atomic publication through real RPC");
+  const periodList = await call("/api/payroll/periods", { method: "GET" });
+  assert.equal(periodList.status, 200);
+  assert.ok(periodList.data.periods.some(x => x.month === published.month &&
+    x.year === published.year), "published period appears in staff month selector");
 
   for (const [i,p] of people.entries()) {
     const found = await call("/api/payroll/search", {
