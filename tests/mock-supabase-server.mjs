@@ -15,7 +15,17 @@ function filterRows(values, params) {
     rows = rows.filter(row => String(row[key]) === expected);
   }
   const order = params.get("order");
-  if (order?.includes("created_at.desc")) rows.sort((a,b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? "")));
+  if (order?.includes("display_order.asc")) {
+    rows.sort((a, b) => {
+      const aUnsorted = a.display_order == null, bUnsorted = b.display_order == null;
+      if (aUnsorted !== bUnsorted) return aUnsorted ? -1 : 1;
+      if (!aUnsorted && a.display_order !== b.display_order)
+        return a.display_order - b.display_order;
+      return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+    });
+  } else if (order?.includes("created_at.desc")) {
+    rows.sort((a,b) => String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+  }
   const limit = Number(params.get("limit"));
   if (Number.isInteger(limit) && limit > 0) rows = rows.slice(0, limit);
   const projection = params.get("select");
@@ -30,6 +40,8 @@ export async function startMockSupabase() {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const table = url.pathname === "/rest/v1/slips" ? "rows" :
       url.pathname === "/rest/v1/upload_history" ? "history" : null;
+    const isHistoryReorderRpc =
+      url.pathname === "/rest/v1/rpc/reorder_payroll_history";
     const isPayrollRpc = [
       "/rest/v1/rpc/stage_payroll_slips",
       "/rest/v1/rpc/publish_payroll_period",
@@ -43,12 +55,38 @@ export async function startMockSupabase() {
       "/rest/v1/rpc/delete_published_payroll_period",
     ].includes(url.pathname);
     if (!table && !isPayrollRpc && !isRecoveryRpc && !isPublishedDeletionRpc &&
+        !isHistoryReorderRpc &&
         url.pathname !== "/rest/v1/rpc/check_payroll_rate_limit") {
       res.writeHead(404); res.end("{}"); return;
     }
     let payload = "";
     for await (const chunk of req) payload += chunk.toString();
     const headers = { "Content-Type": "application/json; charset=utf-8", "Content-Range": "*/*" };
+    if (isHistoryReorderRpc) {
+      try {
+        if (req.method !== "POST") { res.writeHead(405, headers); res.end("{}"); return; }
+        const { p_ids } = JSON.parse(payload);
+        if (!Array.isArray(p_ids) || p_ids.length < 1 || p_ids.length > 120 ||
+            p_ids.some(id => typeof id !== "string" || !id || id.length > 100)) {
+          res.writeHead(400, headers);
+          res.end(JSON.stringify({ code: "22023", message: "invalid order" }));
+          return;
+        }
+        const known = new Set(current.history.map(row => String(row.id)));
+        if (p_ids.length !== known.size || new Set(p_ids).size !== p_ids.length ||
+            p_ids.some(id => !known.has(id))) {
+          res.writeHead(409, headers);
+          res.end(JSON.stringify({ code: "40001", message: "history changed" }));
+          return;
+        }
+        const orderById = new Map(p_ids.map((id, index) => [id, index]));
+        for (const row of current.history) row.display_order = orderById.get(String(row.id));
+        res.writeHead(200, headers); res.end("true");
+      } catch {
+        res.writeHead(500, headers); res.end("{}");
+      }
+      return;
+    }
     if (isPublishedDeletionRpc) {
       const fail = (status, code, message) => {
         res.writeHead(status, headers);
