@@ -215,13 +215,30 @@ async function recoverPeriod(period) {
   assert.equal(after.rows.length + after.entries.length, 0, "synthetic cleanup finished");
 }
 
+// A successful delete response alone does not prove that all isolated test
+// records are gone. Check the database and the exact Storage object again.
+async function verifyCleanup() {
+  const allowedAccounts = new Set(people.map(p => p.bank_account));
+  for (const period of startedPeriods) {
+    const { rows, entries } = await ensureOwnRecords(period, allowedAccounts);
+    assert.equal(rows.length + entries.length, 0, "synthetic SQL rows must be gone");
+  }
+  const listed = await db.storage.from("slips").list("qa", {
+    search: "synthetic-" + runId + ".pdf", limit: 100,
+  });
+  if (listed.error) throw new Error("Cannot verify private Storage cleanup");
+  assert.ok(!listed.data?.some(item => item.name === "synthetic-" + runId + ".pdf"),
+    "synthetic Storage object must be gone");
+}
+
 try {
   // Inspect both target periods before allowing any write to the sandbox.
   await assertUnused(staged);
   await assertUnused(published);
   if (anonymous) {
     const s = await anonymous.from("slips").select("pdf_base64").limit(1);
-    assert.ok(s.error, "Public Supabase role cannot read payroll PDF data");
+    assert.equal(s.error?.code, "42501",
+      "Public Supabase read must be rejected for lack of permission, not an invalid API key");
   } else {
     console.log("SKIP: anonymous RLS and private Storage checks (TEST_SUPABASE_PUBLISHABLE_KEY not set).");
   }
@@ -366,6 +383,8 @@ try {
     const deleted = await db.storage.from("slips").remove([storagePath]);
     if (deleted.error) issues.push("Synthetic Storage cleanup requires manual review");
   }
+  try { await verifyCleanup(); }
+  catch (error) { issues.push("Post-cleanup verification requires manual sandbox review: " + String(error)); }
   if (server) {
     server.kill("SIGTERM");
     await sleep(500);
