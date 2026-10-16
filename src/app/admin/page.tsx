@@ -6,7 +6,9 @@ import { UploadCloud, Settings, FileText, CheckCircle2, History, Trash2, GripVer
 import { PDFDocument } from 'pdf-lib';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import type { DropResult } from '@hello-pangea/dnd';
-import { identifyPageSlips, assertUniquePeriod, assertSlipDocumentLayout, validateSlipPageLayout } from "@/lib/slip-validation";
+// @ts-expect-error - papaparse has no bundled declarations in this project
+import Papa from "papaparse";
+import { parseRoster, identifyPageSlips, assertUniquePeriod, assertSlipDocumentLayout, validateSlipPageLayout } from "@/lib/slip-validation";
 import { ensurePdfJsMapCompatibility } from "@/lib/pdfjs-compat";
 import type { PdfToken, RosterPerson, PageRegion } from "@/lib/slip-validation";
 
@@ -41,6 +43,7 @@ export default function AdminPage() {
   const [selectedMonth, setSelectedMonth] = useState("มกราคม");
   const [selectedYear, setSelectedYear] = useState("2569");
   const [file, setFile] = useState<File | null>(null);
+  const [rosterCsvFile, setRosterCsvFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [notifyLine, setNotifyLine] = useState(true);
@@ -101,9 +104,22 @@ export default function AdminPage() {
     try {
       // Roster is fetched only through the authenticated Next.js server.
       // The private Google Sheet ID must never be exposed to public browsers.
-      const response = await fetch("/api/admin/roster", { cache: "no-store" });
-      if (!response.ok) throw new Error("อ่านทะเบียนบุคลากรไม่ได้ กรุณาตรวจการตั้งค่าเซิร์ฟเวอร์");
-      const { roster } = await response.json() as { roster: RosterPerson[] };
+      let roster: RosterPerson[];
+      if (rosterCsvFile) {
+        // Private local CSV never leaves the Admin's browser. Only the
+        // resulting image-only slips are sent through the staging API.
+        if (!rosterCsvFile.name.toLowerCase().endsWith(".csv") ||
+            rosterCsvFile.size < 10 || rosterCsvFile.size > 1_000_000) {
+          throw new Error("ไฟล์ทะเบียน CSV ไม่ถูกต้องหรือใหญ่เกินกำหนด");
+        }
+        const csv = (await rosterCsvFile.text()).replace(/^\uFEFF/, "");
+        roster = parseRoster(Papa.parse<string[]>(csv, { skipEmptyLines: true }).data);
+      } else {
+        const response = await fetch("/api/admin/roster", { cache: "no-store" });
+        if (!response.ok) throw new Error("อ่านทะเบียนบุคลากรไม่ได้ กรุณาตรวจการตั้งค่าเซิร์ฟเวอร์");
+        const value = await response.json() as { roster: RosterPerson[] };
+        roster = value.roster;
+      }
       if (!Array.isArray(roster) || roster.length === 0) {
         throw new Error("ไม่พบทะเบียนบุคลากรที่ผ่านการตรวจสอบ");
       }
@@ -426,10 +442,19 @@ export default function AdminPage() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-2">ทะเบียนบุคลากร</label>
-                  <p className="text-sm text-slate-700">ใช้ทะเบียนที่กำหนดไว้ในระบบโดยผู้ดูแลเซิร์ฟเวอร์</p>
+                  <p className="text-sm text-slate-700 mb-2">
+                    ใช้ทะเบียนที่กำหนดไว้ในระบบ หรือเลือกไฟล์ CSV จากเครื่องเฉพาะการอัปโหลดครั้งนี้
+                  </p>
+                  <input
+                    type="file"
+                    accept=".csv,text/csv"
+                    aria-label="ไฟล์ CSV ทะเบียนบุคลากร (ไม่บังคับ)"
+                    className="glass-input w-full text-sm bg-white"
+                    onChange={(e) => setRosterCsvFile(e.target.files?.[0] ?? null)}
+                  />
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  ระบบจะอ่านข้อมูลจากทะเบียนส่วนตัวผ่านเซิร์ฟเวอร์ที่ตรวจสิทธิ์ Admin ก่อนแยกไฟล์อัตโนมัติ
+                  หากเลือก CSV ระบบจะอ่านเฉพาะในเบราว์เซอร์ของผู้ดูแลและไม่ส่งทะเบียนขึ้นเซิร์ฟเวอร์ หากไม่เลือกจะอ่านทะเบียนผ่าน API สำหรับ Admin
                 </p>
               </div>
             </div>
