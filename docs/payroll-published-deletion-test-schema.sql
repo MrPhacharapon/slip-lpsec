@@ -97,9 +97,13 @@ BEGIN
   PERFORM pg_catalog.pg_advisory_xact_lock(
     pg_catalog.hashtextextended(p_year || ':' || p_month, 781345)
   );
+  -- Row locks also serialize with direct history reorder/update requests
+  -- which do not use the period advisory lock yet.
   SELECT * INTO v_history FROM public.upload_history
-  WHERE id=p_id AND month=p_month AND year=p_year;
+  WHERE id=p_id AND month=p_month AND year=p_year FOR UPDATE;
   IF NOT FOUND THEN RAISE EXCEPTION 'published history not found' USING ERRCODE = 'P0002'; END IF;
+  PERFORM 1 FROM public.slips
+    WHERE month=p_month AND year=p_year ORDER BY id FOR UPDATE;
   IF v_history.storage_path IS NOT NULL
       AND pg_catalog.btrim(v_history.storage_path) <> '' THEN
     RAISE EXCEPTION 'original Storage file must be reviewed separately'
