@@ -9,6 +9,8 @@ const ALL_MONTHS = [
   "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
 ];
 
+type SlipResult = { month: string; year: string; name?: string };
+
 export default function Home() {
   const router = useRouter();
   
@@ -25,7 +27,7 @@ export default function Home() {
   const [toYear, setToYear] = useState("");
   
   const [isLoading, setIsLoading] = useState(false);
-  const [results, setResults] = useState<any[] | null>(null);
+  const [results, setResults] = useState<SlipResult[] | null>(null);
   const [employeeData, setEmployeeData] = useState<{name: string, position: string} | null>(null);
 
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -68,13 +70,14 @@ export default function Home() {
         // Data is empty
         console.log("No upload history found.");
       }
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, []);
 
   useEffect(() => {
-    fetchAvailablePeriods();
+    const timer = window.setTimeout(() => { void fetchAvailablePeriods(); }, 0);
+    return () => window.clearTimeout(timer);
   }, [fetchAvailablePeriods]);
 
   const requestPdf = async (month: string, year: string): Promise<Blob> => {
@@ -94,7 +97,7 @@ export default function Home() {
     try {
       const blob = await requestPdf(month, year);
       const url = URL.createObjectURL(blob);
-      if (tab) tab.location.href = url;
+      if (tab) tab.location.assign(url);
       else window.location.href = url;
     } catch {
       tab?.close();
