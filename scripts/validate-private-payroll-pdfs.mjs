@@ -48,13 +48,12 @@ async function checkPdf(file, roster) {
   if (bytes.length < 100 || bytes.length > 100_000_000)
     throw Error("invalid pdf file size");
   stage = "DOCUMENT_LOAD";
-  const task = getDocument({
-    data: new Uint8Array(bytes), useSystemFonts: true,
-    // Only locally installed PDF.js assets; do not supply remote URLs.
-    disableFontFace: true,
-  });
+  let task;
   let document;
   try {
+    // Use the same PDF.js options as the validated browser test.
+    // A synchronous PDF.js initialization failure is caught and redacted.
+    task = getDocument({ data: new Uint8Array(bytes), useSystemFonts: true });
     document = await task.promise;
     if (!document.numPages || document.numPages > 500)
       throw Error("invalid source page count");
@@ -107,7 +106,7 @@ async function checkPdf(file, roster) {
     throw error;
   } finally {
     if (document) await document.destroy();
-    else await task.destroy();
+    else if (task) await task.destroy();
   }
 }
 
