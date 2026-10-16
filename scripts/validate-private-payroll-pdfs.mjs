@@ -43,9 +43,11 @@ async function readRoster(file) {
 }
 
 async function checkPdf(file, roster) {
+  let stage = "FILE_READ";
   const bytes = await readFile(file);
   if (bytes.length < 100 || bytes.length > 100_000_000)
     throw Error("invalid pdf file size");
+  stage = "DOCUMENT_LOAD";
   const task = getDocument({
     data: new Uint8Array(bytes), useSystemFonts: true,
     // Only locally installed PDF.js assets; do not supply remote URLs.
@@ -59,6 +61,7 @@ async function checkPdf(file, roster) {
     const all = [];
     let singlePages = 0, doublePages = 0;
     for (let i = 0; i < document.numPages; i++) {
+      stage = "PAGE_READ";
       const page = await document.getPage(i + 1);
       if (page.rotate % 360 !== 0 || page.view[1] !== 0) {
         throw Object.assign(Error("unsupported page rotation or view"), { page: i + 1 });
@@ -70,6 +73,7 @@ async function checkPdf(file, roster) {
       const height = page.view[3] - page.view[1];
       let layout, matches;
       try {
+        stage = "PAGE_VALIDATE";
         layout = validateSlipPageLayout(tokens, width, height);
         matches = identifyPageSlips(tokens, height, roster);
         if ((layout === "single" &&
@@ -90,12 +94,17 @@ async function checkPdf(file, roster) {
     }
     // Duplicate accounts or impossible period totals are refused before
     // rendering or database staging by the same uploader validator.
+    stage = "PERIOD_VALIDATE";
     assertUniquePeriod(all);
     return {
       pageCount: document.numPages,
       slipCount: all.length,
       singlePages, doublePages,
     };
+  } catch (error) {
+    // Only a fixed stage label; never emit raw dependency errors or PDF text.
+    if (error && typeof error === "object" && !error.stage) error.stage = stage;
+    throw error;
   } finally {
     if (document) await document.destroy();
     else await task.destroy();
@@ -136,6 +145,7 @@ async function main() {
       process.stdout.write(JSON.stringify({
         document: i + 1, status: "FAIL",
         page: Number.isInteger(error?.page) ? error.page : null,
+        stage: typeof error?.stage === "string" ? error.stage : "UNKNOWN",
       }) + "\n");
     }
   }
