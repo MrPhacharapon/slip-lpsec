@@ -23,6 +23,12 @@ function validate(env) {
     if (!env[key] || !env[key].trim()) errors.push(key);
   }
   const stage = env.PAYROLL_RELEASE_TARGET;
+  if (stage === "production") {
+    for (const key of ["CRON_SECRET", "LINE_CHANNEL_SECRET",
+      "LINE_CHANNEL_ACCESS_TOKEN", "LINE_GROUP_ID"]) {
+      if (!env[key] || env[key].length < 20) errors.push(key);
+    }
+  }
   // Production must never skip the staff directory. The isolated test
   // environment must never silently contact the actual staff sheet.
   if ((stage === "production" && env.STAFF_DIRECTORY_DISABLED === "true") ||
