@@ -15,10 +15,27 @@
 import { createReadStream } from "node:fs";
 import { readdir, lstat, realpath, readFile, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { resolve, relative, sep, win32, join } from "node:path";
+import { resolve, relative, sep, win32, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const MAX_FILES = 10000;
 const MAX_MANIFEST = 4_000_000;
+const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+function isWithin(parent, child) {
+  const rel = relative(parent, resolve(child));
+  return rel === "" || (rel !== ".." && !rel.startsWith(".." + sep) &&
+    !win32.isAbsolute(rel));
+}
+
+function refuseRepositoryPaths(root, manifest) {
+  // Protect operators from accidentally checking a sensitive payroll backup
+  // into source control. Only external private folders may be used.
+  if (isWithin(REPOSITORY_ROOT, root) ||
+      isWithin(REPOSITORY_ROOT, manifest)) {
+    throw Error("sensitive backup or manifest is inside repository");
+  }
+}
 
 function ensureOutsideRoot(root, manifest) {
   const rel = relative(root, resolve(manifest));
@@ -73,6 +90,7 @@ async function main(args) {
   const root = await realpath(resolve(rootInput));
   if (!(await lstat(root)).isDirectory()) throw Error("invalid root");
   ensureOutsideRoot(root, manifestInput);
+  refuseRepositoryPaths(root, manifestInput);
   const files = await inventory(root);
   let count = 0, bytes = 0;
   if (mode === "create") {
