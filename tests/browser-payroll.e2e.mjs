@@ -289,18 +289,23 @@ async function main() {
         await admin.goto(base + "/admin", { waitUntil: "domcontentloaded" });
         await admin.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
 
-        // Playwright's cookie policy may withhold SameSite=Strict cookies
-        // for a foreign Origin. Attach the real signed test session explicitly
-        // so the test exercises the *separate* Origin guard after auth succeeds.
-        const adminSession = (await context.cookies(base))
-          .find(cookie => cookie.name === "payroll_admin_session");
-        assert.ok(adminSession?.value, "a signed Admin cookie is available");
+        // On local HTTP, a Secure cookie may not enter Playwright's cookie
+        // jar. Obtain a real signed test session from the login response,
+        // then explicitly attach it only to this synthetic CSRF check.
+        const testLogin = await context.request.post(base + "/api/auth", {
+          headers: { Origin: base },
+          data: { password: "synthetic-admin-password-do-not-use" },
+        });
+        assert.equal(testLogin.status(), 200, "sandbox Admin login for CSRF check");
+        const signedCookie = testLogin.headers()["set-cookie"]?.split(";")[0] ?? "";
+        assert.match(signedCookie, /^payroll_admin_session=[^.]+\.[^.]+$/,
+          "sandbox login returned a signed session cookie");
         for (const route of ["/api/admin/preflight", "/api/admin/finalize",
           "/api/admin/slips", "/api/send-line"]) {
           const rejected = await context.request.post(base + route, {
             headers: {
               Origin: "https://cross-site.invalid",
-              Cookie: adminSession.name + "=" + adminSession.value,
+              Cookie: signedCookie,
             },
             data: route.endsWith("/slips") ? { rows: [] } :
               { month: "ตุลาคม", year: "2569", fileName: "fake.pdf", expectedCount: 1 },
