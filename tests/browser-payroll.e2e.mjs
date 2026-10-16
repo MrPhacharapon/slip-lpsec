@@ -469,6 +469,133 @@ async function main() {
     }
 
 
+    // Published deletion is a separate explicit backup-confirmed operation:
+    // immutable snapshot, signed admin cookie, and no legacy shortcut.
+    {
+      const historyId = "22222222-2222-4222-8222-222222222222";
+      const state = {
+        rows: [{
+          id: "11111111-1111-4111-8111-111111111111",
+          month: "มกราคม", year: "2569", bank_account: persons[0].account,
+          name: persons[0].name, pdf_base64: "SYNTHETIC_PUBLISHED_DOCUMENT",
+        }],
+        history: [{
+          id: historyId, month: "มกราคม", year: "2569",
+          file_name: "fictional-published.pdf", storage_path: null,
+          created_at: new Date().toISOString(),
+        }],
+      };
+      const context = await makeSandboxContext(browser, state);
+      const admin = await context.newPage();
+      try {
+        await admin.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await admin.getByText("สลิปเดือน มกราคม 2569").waitFor();
+
+        const oldApi = await admin.evaluate(async ({id}) => {
+          const r = await fetch("/api/admin/history", {
+            method: "DELETE", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, month: "มกราคม", year: "2569" }),
+          });
+          return r.status;
+        }, {id:historyId});
+        assert.equal(oldApi, 405, "legacy non-atomic history delete must be disabled");
+        assert.equal(state.rows.length, 1);
+
+        const preview = await admin.evaluate(async ({id}) => {
+          const r = await fetch("/api/admin/published-deletion", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, month: "มกราคม", year: "2569" }),
+          });
+          return { status: r.status, data: await r.json() };
+        }, {id:historyId});
+        assert.equal(preview.status, 200);
+        assert.equal(preview.data.eligible, true);
+        assert.equal(preview.data.slipCount, 1);
+        assert.match(preview.data.snapshot, /^[a-f0-9]{64}$/);
+
+        const unconfirmed = await admin.evaluate(async ({id,snapshot}) => {
+          const r = await fetch("/api/admin/published-deletion", {
+            method: "DELETE", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, month: "มกราคม", year: "2569",
+              expectedCount: 1, snapshot,
+              confirmation: "ลบสลิปที่เผยแพร่ มกราคม 2569", backupConfirmed: false }),
+          });
+          return r.status;
+        }, {id:historyId,snapshot:preview.data.snapshot});
+        assert.equal(unconfirmed, 400, "missing backup acknowledgement must be rejected");
+
+        state.rows[0].pdf_base64 = "SYNTHETIC_CHANGED_AFTER_PREVIEW";
+        const stale = await admin.evaluate(async ({id,snapshot}) => {
+          const r = await fetch("/api/admin/published-deletion", {
+            method: "DELETE", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, month: "มกราคม", year: "2569",
+              expectedCount: 1, snapshot,
+              confirmation: "ลบสลิปที่เผยแพร่ มกราคม 2569", backupConfirmed: true }),
+          });
+          return r.status;
+        }, {id:historyId,snapshot:preview.data.snapshot});
+        assert.equal(stale, 409, "PDF changed since preview: delete refused");
+        assert.equal(state.rows.length, 1);
+        assert.equal(state.history.length, 1);
+
+        const dialogs = [];
+        admin.on("dialog", async dialog => {
+          dialogs.push(dialog.type());
+          if (dialog.type() === "prompt")
+            await dialog.accept("ลบสลิปที่เผยแพร่ มกราคม 2569");
+          else await dialog.accept();
+        });
+        await admin.locator('button[title="ลบข้อมูล"]').click();
+        await until(() => state.rows.length === 0 && state.history.length === 0,
+          "confirmed published period deleted atomically");
+        assert.ok(dialogs.includes("confirm") && dialogs.includes("prompt"),
+          "published deletion requires backup acknowledgement and typed phrase");
+        console.log("PASS published deletion: old API disabled, backup required, stale refused, atomic confirmed delete.");
+      } finally { await context.close(); }
+    }
+
+    // Published periods with original Storage objects require a separate
+    // backup and Storage workflow, even with a valid admin session.
+    {
+      const historyId = "33333333-3333-4333-8333-333333333333";
+      const state = {
+        rows: [{ id: "44444444-4444-4444-8444-444444444444",
+          month: "มกราคม", year: "2569", bank_account: persons[0].account,
+          pdf_base64: "SYNTHETIC_OLD_DOCUMENT" }],
+        history: [{ id: historyId, month: "มกราคม", year: "2569",
+          file_name: "old-synthetic.pdf", storage_path: "private/original-synthetic.pdf",
+          created_at: new Date().toISOString() }],
+      };
+      const context = await makeSandboxContext(browser,state);
+      const admin = await context.newPage();
+      try {
+        await admin.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await admin.getByText("สลิปเดือน มกราคม 2569").waitFor();
+        const preview = await admin.evaluate(async ({id}) => {
+          const r = await fetch("/api/admin/published-deletion", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, month: "มกราคม", year: "2569" }),
+          });
+          return await r.json();
+        }, {id:historyId});
+        assert.equal(preview.eligible, false);
+        assert.equal(preview.storageProtected, true);
+        const attempt = await admin.evaluate(async ({id}) => {
+          const r = await fetch("/api/admin/published-deletion", {
+            method: "DELETE", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id, month: "มกราคม", year: "2569",
+              expectedCount: 1, snapshot: "a".repeat(64),
+              confirmation: "ลบสลิปที่เผยแพร่ มกราคม 2569", backupConfirmed: true }),
+          });
+          return r.status;
+        }, {id:historyId});
+        assert.equal(attempt, 409, "server refuses published deletion when original file still referenced");
+        assert.equal(state.rows.length, 1);
+        assert.equal(state.history.length, 1);
+        console.log("PASS original Storage file protection: published payroll cannot be deleted automatically.");
+      } finally { await context.close(); }
+    }
+
     // Published month must never be rewritten, even if an admin submits the same file.
     {
       const original = { id: "already-published", month: "มกราคม", year: "2569",
