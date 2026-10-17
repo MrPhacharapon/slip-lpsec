@@ -25,7 +25,8 @@ test("private PDF.js helper never echoes roster fields on rejected input", () =>
       "ชื่อ-นามสกุล,ตำแหน่ง,เลขบัญชี,รายการรายรับ (เลขตำแหน่ง)\n" +
       "นายสมมติ หนึ่ง,ครู,9876543210,1234567\n");
     writeFileSync(pdf, "%PDF-1.4\nsynthetic invalid PDF bytes only\n".repeat(8));
-    const result = run(["--roster", roster, "--pdf", pdf]);
+    const result = run(["--roster", roster, "--pdf", pdf,
+      "--month", "กันยายน", "--year", "2569"]);
     assert.equal(result.status, 1);
     assert.match(result.stdout, /"status":"FAIL"/);
     const visible = result.stdout + result.stderr;
@@ -35,4 +36,12 @@ test("private PDF.js helper never echoes roster fields on rejected input", () =>
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("private PDF.js helper rejects missing explicit period before reading private files", () => {
+  const result = run(["--roster", "/private/fictional.csv",
+    "--pdf", "/private/fictional.pdf"]);
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Usage:/);
+  assert.ok(!result.stderr.includes("/private/fictional"));
 });
