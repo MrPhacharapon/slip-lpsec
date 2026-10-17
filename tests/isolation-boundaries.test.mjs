@@ -13,6 +13,8 @@ test("admin UI fetches its roster via authorized server, never public browser UR
   const api = get("src/app/api/admin/roster/route.ts");
   assert.match(api, /requireAdmin\(req\)/);
   assert.match(api, /STAFF_DIRECTORY_DISABLED/);
+  assert.match(api, /PAYROLL_ROSTER_MODE/);
+  assert.match(api, /local_csv/);
   assert.match(api, /process\.env\.STAFF_SHEET_ID/);
   assert.doesNotMatch(api, /req\.nextUrl\.searchParams/);
 });
