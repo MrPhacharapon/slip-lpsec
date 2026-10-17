@@ -597,6 +597,23 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // Direct Admin POST is not sufficient to announce a payroll period.
+    // The route must check the committed publication even without the UI.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const uncommitted = await context.request.post(base + "/api/send-line", {
+          headers: { Origin: base },
+          data: { month: "กันยายน", year: "2569" },
+        });
+        assert.equal(uncommitted.status(), 409,
+          "Admin must not announce a period without a committed publication");
+        assert.equal(state.history.length, 0);
+        console.log("PASS LINE API: unpublished periods cannot be announced.");
+      } finally { await context.close(); }
+    }
+
     // LINE is sent once after a real publication acknowledgement, not
     // before finalizing the payroll. The checkbox must control the side effect.
     {
