@@ -92,6 +92,12 @@ async function makeSandboxContext(browser, state, personnel = persons) {
         name: p.name, bankAccount: p.account, positionNumber: p.position,
       })) }) });
   });
+  // Notification requests are synthetic in browser CI: never call real LINE.
+  // Specific scenarios below override this route to verify delivery semantics.
+  await context.route("**/api/send-line", async route => route.fulfill({
+    status: 200, contentType: "application/json",
+    body: JSON.stringify({ success: true }),
+  }));
   await context.route(/https:\/\/(example\.supabase\.co|docs\.google\.com)\//, async route => {
     throw new Error("Browser attempted to reach external payroll data source");
   });
@@ -102,7 +108,8 @@ async function makeSandboxContext(browser, state, personnel = persons) {
   return context;
 }
 
-async function submitOnAdmin(context, pdf, month = "กันยายน", localRosterCsv = null) {
+async function submitOnAdmin(context, pdf, month = "กันยายน", localRosterCsv = null,
+  sendNotification = true) {
   const page = await context.newPage();
   const messages = [];
   page.on("dialog", async dialog => {
@@ -127,6 +134,7 @@ async function submitOnAdmin(context, pdf, month = "กันยายน", loca
       mimeType: "text/csv", buffer: Buffer.from(localRosterCsv),
     });
   }
+  if (!sendNotification) await page.locator("#notify-line").uncheck();
   await page.getByRole("button", { name: "อัพโหลดไฟล์" }).click();
   return { page, messages, errors };
 }
@@ -586,6 +594,85 @@ async function main() {
           "failed reorder must leave all positions unchanged");
         await page.close();
         console.log("PASS history reorder: atomic positions without changing created_at.");
+      } finally { await context.close(); }
+    }
+
+    // LINE is sent once after a real publication acknowledgement, not
+    // before finalizing the payroll. The checkbox must control the side effect.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const notifications = [];
+        await context.route("**/api/send-line", async route => {
+          notifications.push({
+            payload: route.request().postDataJSON(),
+            historyCount: state.history.length,
+            stagedCount: state.rows.length,
+          });
+          return route.fulfill({ status: 200, contentType: "application/json",
+            body: JSON.stringify({ success: true }) });
+        });
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const { page, messages, errors } = await submitOnAdmin(context, pdf);
+        await awaitUploadSuccess(page, messages, errors);
+        await until(() => notifications.length === 1, "LINE once after publication");
+        assert.deepEqual(notifications, [{
+          payload: { month: "กันยายน", year: "2569" },
+          historyCount: 1,
+          stagedCount: 1,
+        }]);
+        assert.deepEqual(errors, []);
+        await page.close();
+        console.log("PASS LINE notification: one post-publish request with correct period.");
+      } finally { await context.close(); }
+    }
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        let notifications = 0;
+        await context.route("**/api/send-line", async route => {
+          notifications++;
+          return route.fulfill({ status: 200, contentType: "application/json",
+            body: JSON.stringify({ success: true }) });
+        });
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const { page, messages, errors } = await submitOnAdmin(
+          context, pdf, "กันยายน", null, false);
+        await awaitUploadSuccess(page, messages, errors);
+        await page.waitForLoadState("networkidle");
+        assert.equal(notifications, 0, "unchecked LINE must never notify");
+        assert.equal(state.history.length, 1, "unchecked LINE cannot block publish");
+        assert.deepEqual(errors, []);
+        await page.close();
+        console.log("PASS LINE opt-out: payroll published without notification.");
+      } finally { await context.close(); }
+    }
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        let notifications = 0;
+        await context.route("**/api/send-line", async route => {
+          notifications++;
+          return route.fulfill({ status: 503, contentType: "application/json",
+            body: JSON.stringify({ error: "synthetic LINE service outage" }) });
+        });
+        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const { page, messages, errors } = await submitOnAdmin(context, pdf);
+        await awaitUploadSuccess(page, messages, errors);
+        await until(() => messages.some(m =>
+          m.includes("เผยแพร่สลิปสำเร็จแล้ว แต่ส่งแจ้งเตือน LINE ไม่สำเร็จ")),
+          "LINE failure is a warning after committed publish");
+        assert.equal(notifications, 1);
+        assert.equal(state.history.length, 1, "LINE failure cannot undo publish");
+        assert.equal(state.rows.length, 1);
+        assert.equal(await page.getByText("อัปโหลดสำเร็จ!").count(), 1);
+        assert.ok(!messages.some(m => m.includes("ตรวจสอบเอกสารไม่สำเร็จ")));
+        assert.deepEqual(errors, []);
+        await page.close();
+        console.log("PASS LINE outage: warning only; no duplicate payroll publication.");
       } finally { await context.close(); }
     }
 
