@@ -6,7 +6,8 @@ import Papa from "papaparse";
 export async function lookupStaffDirectory(account: string):
   Promise<{ name: string; position: string } | null> {
   // Prevent isolated environments from reading the production staff roster.
-  if (process.env.STAFF_DIRECTORY_DISABLED === "true") return null;
+  if (process.env.STAFF_DIRECTORY_DISABLED === "true" ||
+      process.env.PAYROLL_ROSTER_MODE === "local_csv") return null;
   const sheetId = process.env.STAFF_SHEET_ID;
   if (!sheetId) return null;
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(sheetId)) return null;
