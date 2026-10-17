@@ -6,7 +6,8 @@
  *
  * node --experimental-strip-types scripts/validate-private-payroll-pdfs.mjs \
  *   --roster "/private/staff-roster.csv" \
- *   --pdf "/private/january.pdf" --pdf "/private/february.pdf"
+ *   --pdf "/private/january.pdf" --month "มกราคม" --year "2569" \
+ *   --pdf "/private/february.pdf" --month "กุมภาพันธ์" --year "2569"
  *
  * Output includes only document indices, counts, and failure page numbers.
  * No names, accounts, positions, PDF text, or absolute local paths are logged.
@@ -15,20 +16,29 @@ import { readFile } from "node:fs/promises";
 import Papa from "papaparse";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
-  parseRoster, validateSlipPageLayout, identifyPageSlips, assertUniquePeriod,
+  parseRoster, validateSlipPageLayout, assertSlipPagePeriod, identifyPageSlips, assertUniquePeriod,
   assertSlipDocumentLayout,
 } from "../src/lib/slip-validation.ts";
 
 function argumentsFrom(argv) {
   if (argv.length === 1 && argv[0] === "--help") return { help: true };
-  const result = { roster: null, pdfs: [] };
+  const result = { roster: null, documents: [] };
   for (let i = 0; i < argv.length; i += 2) {
     if (i + 1 >= argv.length) throw Error("usage");
     if (argv[i] === "--roster" && result.roster === null) result.roster = argv[i + 1];
-    else if (argv[i] === "--pdf") result.pdfs.push(argv[i + 1]);
-    else throw Error("usage");
+    else if (argv[i] === "--pdf") result.documents.push({
+      file: argv[i + 1], month: null, year: null,
+    });
+    else if (argv[i] === "--month" && result.documents.length &&
+             result.documents.at(-1).month === null) {
+      result.documents.at(-1).month = argv[i + 1];
+    } else if (argv[i] === "--year" && result.documents.length &&
+               result.documents.at(-1).year === null) {
+      result.documents.at(-1).year = argv[i + 1];
+    } else throw Error("usage");
   }
-  if (!result.roster || !result.pdfs.length || result.pdfs.length > 24) {
+  if (!result.roster || !result.documents.length || result.documents.length > 24 ||
+      result.documents.some(d => !d.file || !d.month || !d.year)) {
     throw Error("usage");
   }
   return result;
@@ -43,7 +53,7 @@ async function readRoster(file) {
   return parseRoster(Papa.parse(csv, { skipEmptyLines: true }).data);
 }
 
-async function checkPdf(file, roster) {
+async function checkPdf(file, roster, expectedMonth, expectedYear) {
   let stage = "FILE_READ";
   let bytes;
   try {
@@ -81,6 +91,7 @@ async function checkPdf(file, roster) {
       try {
         stage = "PAGE_VALIDATE";
         layout = validateSlipPageLayout(tokens, width, height);
+        assertSlipPagePeriod(tokens, height, layout, expectedMonth, expectedYear);
         matches = identifyPageSlips(tokens, height, roster);
         if ((layout === "single" &&
              (matches.length !== 1 || matches[0].region !== "full")) ||
@@ -125,12 +136,12 @@ async function main() {
   try {
     args = argumentsFrom(process.argv.slice(2));
   } catch {
-    process.stderr.write("Usage: --roster PRIVATE.csv --pdf PRIVATE.pdf [--pdf PRIVATE.pdf ...]\n");
+    process.stderr.write("Usage: --roster PRIVATE.csv --pdf PRIVATE.pdf --month THAI_MONTH --year YYYY [repeat per PDF]\n");
     process.exitCode = 2;
     return;
   }
   if (args.help) {
-    process.stdout.write("Private PDF.js payroll acceptance: --roster PRIVATE.csv --pdf PRIVATE.pdf (repeat --pdf).\n");
+    process.stdout.write("Private PDF.js payroll acceptance: --roster PRIVATE.csv --pdf PRIVATE.pdf --month THAI_MONTH --year YYYY (repeat per PDF).\n");
     return;
   }
   let roster;
@@ -141,9 +152,10 @@ async function main() {
     return;
   }
   let failures = 0, pages = 0, slips = 0;
-  for (let i = 0; i < args.pdfs.length; i++) {
+  for (let i = 0; i < args.documents.length; i++) {
     try {
-      const result = await checkPdf(args.pdfs[i], roster);
+      const entry = args.documents[i];
+      const result = await checkPdf(entry.file, roster, entry.month, entry.year);
       pages += result.pageCount;
       slips += result.slipCount;
       process.stdout.write(JSON.stringify({
@@ -161,7 +173,7 @@ async function main() {
   }
   process.stdout.write(JSON.stringify({
     result: failures ? "FAIL" : "PASS",
-    documents: args.pdfs.length, failedDocuments: failures, pages, slips,
+    documents: args.documents.length, failedDocuments: failures, pages, slips,
   }) + "\n");
   if (failures) process.exitCode = 1;
 }

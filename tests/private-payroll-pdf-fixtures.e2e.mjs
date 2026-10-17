@@ -17,9 +17,9 @@ const people = [
   { name: "นางสาวทดลอง สาม", account: "1112223334", position: "0000003" },
 ];
 
-function fixture(layout, occupants, wrongPosition = false) {
+function fixture(layout, occupants, wrongPosition = false, month = "กันยายน", year = "2569") {
   return execFileSync("python3", ["tests/generate-synthetic-payroll.py"], {
-    input: JSON.stringify({ layout, people: occupants, wrongPosition }),
+    input: JSON.stringify({ layout, people: occupants, wrongPosition, month, year }),
     maxBuffer: 8 * 1024 * 1024,
   });
 }
@@ -33,7 +33,11 @@ function checkCli(dir, pdfs) {
   return spawnSync(process.execPath, [
     "--experimental-strip-types", "scripts/validate-private-payroll-pdfs.mjs",
     "--roster", roster,
-    ...pdfs.flatMap(file => ["--pdf", file]),
+    ...pdfs.flatMap(d => {
+      const doc = typeof d === "string" ? { file: d } : d;
+      return ["--pdf", doc.file, "--month", doc.month ?? "กันยายน",
+        "--year", doc.year ?? "2569"];
+    }),
   ], { cwd: process.cwd(), encoding: "utf8", timeout: 45000,
        maxBuffer: 1024 * 1024 });
 }
@@ -114,4 +118,42 @@ test("private PDF.js rejects an isolated A page before a B double page", async (
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("private PDF.js rejects wrong printed month/year and a B half mismatch", () => {
+  const dir = mkdtempSync(join(tmpdir(), "payroll-fictional-period-"));
+  try {
+    const monthFile = join(dir, "synthetic-month.pdf");
+    const yearFile = join(dir, "synthetic-year.pdf");
+    const halfFile = join(dir, "synthetic-half.pdf");
+    writeFileSync(monthFile, fixture("A", [people[0]], false, "ตุลาคม"));
+    writeFileSync(yearFile, fixture("A", [people[0]], false, "กันยายน", "2568"));
+    writeFileSync(halfFile, fixture("B", [people[0],
+      { ...people[1], month: "สิงหาคม" }]));
+    const r = checkCli(dir, [monthFile,yearFile,halfFile]);
+    assert.equal(r.status, 1);
+    const events = r.stdout.trim().split(/\r?\n/)
+      .filter(line=>line.startsWith("{")).map(line=>JSON.parse(line));
+    assert.deepEqual(events, [
+      { document: 1, status: "FAIL", page: 1, stage: "PAGE_VALIDATE" },
+      { document: 2, status: "FAIL", page: 1, stage: "PAGE_VALIDATE" },
+      { document: 3, status: "FAIL", page: 1, stage: "PAGE_VALIDATE" },
+      { result: "FAIL", documents: 3, failedDocuments: 3, pages: 0, slips: 0 },
+    ]);
+    for (const secret of [dir, ...people.flatMap(p=>[p.name,p.account,p.position])])
+      assert.ok(!(r.stdout+r.stderr).includes(secret));
+  } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test("private PDF.js supports individually declared months across multiple files", () => {
+  const dir=mkdtempSync(join(tmpdir(),"payroll-fictional-crossperiod-"));
+  try {
+    const january=join(dir,"synthetic-jan.pdf");
+    const september=join(dir,"synthetic-sep.pdf");
+    writeFileSync(january,fixture("A",[people[0]],false,"มกราคม"));
+    writeFileSync(september,fixture("A",[people[1]],false,"กันยายน"));
+    const r=checkCli(dir,[{file:january,month:"มกราคม"},{file:september,month:"กันยายน"}]);
+    assert.equal(r.status,0,r.stdout);
+    assert.ok(JSON.parse(r.stdout.trim().split(/\r?\n/).at(-1)).result==="PASS");
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });

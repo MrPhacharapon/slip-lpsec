@@ -27,11 +27,11 @@ npm ci
 ```powershell
 node --experimental-strip-types scripts/validate-private-payroll-pdfs.mjs `
   --roster "D:\PrivatePayroll\staff.csv" `
-  --pdf "D:\PrivatePayroll\January.pdf" `
-  --pdf "D:\PrivatePayroll\February.pdf"
+  --pdf "D:\PrivatePayroll\January.pdf" --month "มกราคม" --year "2569" `
+  --pdf "D:\PrivatePayroll\February.pdf" --month "กุมภาพันธ์" --year "2569"
 ```
 
-เพิ่ม `--pdf` ได้ตามจำนวนไฟล์ที่ต้องการตรวจ (ไม่เกิน 24 ไฟล์ต่อคำสั่ง) สคริปต์ใช้ PDF.js อ่านทุกหน้าและใช้ `parseRoster`, `validateSlipPageLayout`, `identifyPageSlips` และ `assertUniquePeriod` จากโค้ดเว็บจริง แสดงเฉพาะเลขลำดับเอกสาร จำนวนหน้า/สลิป และผล PASS/FAIL พร้อมเลขหน้าที่มีปัญหา ไม่มีการพิมพ์ข้อมูลเจ้าของบัญชี รายรับ หรือชื่อไฟล์ออกมา
+เพิ่ม `--pdf` + `--month` + `--year` สำหรับทุกไฟล์ (ไม่เกิน 24 ไฟล์ต่อคำสั่ง) โดยต้องระบุเดือน–ปีของ PDF ให้ตรงกับที่ตั้งใจอัปโหลด สคริปต์ใช้ PDF.js อ่านทุกหน้าและใช้ `parseRoster`, `validateSlipPageLayout`, `assertSlipPagePeriod`, `identifyPageSlips` และ `assertUniquePeriod` จากโค้ดเว็บจริง แสดงเฉพาะเลขลำดับเอกสาร จำนวนหน้า/สลิป และผล PASS/FAIL พร้อมเลขหน้าที่มีปัญหา ไม่มีการพิมพ์ข้อมูลเจ้าของบัญชี รายรับ หรือชื่อไฟล์ออกมา
 
 หากได้ FAIL แม้หน้าเดียว **หยุด** ไม่อัปโหลดไฟล์นั้น ตรวจปัญหาในเครื่องที่มีสิทธิ์เท่านั้น ห้ามวางข้อความ PDF หรือข้อมูลบัญชีลง Issue/CI/Chat
 
@@ -87,7 +87,7 @@ node scripts/verify-private-payroll-backup.mjs verify --root "D:\PrivatePayroll\
 
 ## 4. เกณฑ์ตรวจรับ
 
-- PDF จริง: ทุกหน้าอ่านได้, ตรวจขนาด/การหมุน, A = 1 สลิป และ B = 1–2 สลิป, ชื่อ–บัญชี–เลขตำแหน่งตรงทะเบียนบุคคลเดียวกัน, ไม่มีบัญชีซ้ำ
+- PDF จริง: ทุกหน้าอ่านได้, ตรวจขนาด/การหมุน, A = 1 สลิป และ B = 1–2 สลิป, เดือน–ปีของทุกสลิปตรงกับค่าที่เลือก, ชื่อ–บัญชี–เลขตำแหน่งตรงทะเบียนบุคคลเดียวกัน, ไม่มีบัญชีซ้ำ
 - ข้อมูลสมมติ: Next.js API ตรวจ Stage/Publish/Search/PDF, ไม่เผยแพร่ข้อมูลที่ Stage ค้าง, คืนสภาพและตรวจ 0 รายการค้าง
 - ห้ามเก็บชื่อ/เลขบัญชี/เงินเดือน/PDF จริงไว้ใน Git, GitHub, CI หรือ Public Logs
 - ไม่ถือว่า Production GO จนกว่าจะมีหลักฐาน Backup/Restore, Secrets, RLS/Storage, Cutover Plan และอนุมัติ Production โดยชัดเจน
