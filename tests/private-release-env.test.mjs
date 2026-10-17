@@ -162,3 +162,29 @@ test("private CSV mode refuses staff directory access and unknown modes", () => 
   assert.equal(invalid.status, 1);
   assert.ok(JSON.parse(invalid.stdout).missingOrInvalid.includes("PAYROLL_ROSTER_MODE"));
 });
+
+test("release preflight rejects any browser-exposed payroll server-only configuration", () => {
+  for (const key of [
+    "NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY",
+    "NEXT_PUBLIC_ADMIN_PASSWORD",
+    "NEXT_PUBLIC_ADMIN_SESSION_SECRET",
+    "NEXT_PUBLIC_PAYROLL_RATE_LIMIT_SECRET",
+    "NEXT_PUBLIC_CRON_SECRET",
+    "NEXT_PUBLIC_LINE_CHANNEL_SECRET",
+    "NEXT_PUBLIC_LINE_CHANNEL_ACCESS_TOKEN",
+    "NEXT_PUBLIC_LINE_GROUP_ID",
+    "NEXT_PUBLIC_STAFF_SHEET_ID",
+  ]) {
+    const result = check({ [key]: "FICTIONAL_TEST_VALUE_NOT_A_REAL_SECRET" });
+    assert.equal(result.status, 1, key + " must fail before release");
+    assert.ok(JSON.parse(result.stdout).missingOrInvalid.includes(key));
+    assert.ok(!result.stdout.includes("FICTIONAL_TEST_VALUE_NOT_A_REAL_SECRET"));
+  }
+});
+
+test("release preflight also rejects an empty server-only NEXT_PUBLIC_ variable", () => {
+  const result = check({ NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: "" });
+  assert.equal(result.status, 1);
+  assert.ok(JSON.parse(result.stdout).missingOrInvalid
+    .includes("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY"));
+});
