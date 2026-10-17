@@ -30,6 +30,8 @@ test("neither payroll UI uses browser Supabase access", () => {
 test("staff directory has no hard-coded Google Sheets identifier fallback", () => {
   const source = get("src/lib/server/staff-directory.ts");
   assert.match(source, /const sheetId = process\.env\.STAFF_SHEET_ID/);
+  assert.match(source, /PAYROLL_ROSTER_MODE/);
+  assert.match(source, /local_csv/);
   assert.doesNotMatch(source, /const sheetId = process\.env\.STAFF_SHEET_ID\s*\|\|/);
 });
 
