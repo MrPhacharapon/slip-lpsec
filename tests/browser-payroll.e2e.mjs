@@ -64,9 +64,10 @@ async function startServer() {
   throw new Error("Next server did not start: " + lastLog);
 }
 
-async function printablePdf(_browser, layout, rosterPeople, wrongPosition = false) {
+async function printablePdf(_browser, layout, rosterPeople, wrongPosition = false,
+  month = "กันยายน", year = "2569") {
   const buffer = execFileSync("python3", ["tests/generate-synthetic-payroll.py"], {
-    input: JSON.stringify({ layout, people: rosterPeople, wrongPosition }),
+    input: JSON.stringify({ layout, people: rosterPeople, wrongPosition, month, year }),
     maxBuffer: 8 * 1024 * 1024,
   });
   const doc = await PDFDocument.load(buffer);
@@ -735,7 +736,7 @@ async function main() {
       const state = { rows: [], history: [] };
       const context = await makeSandboxContext(browser, state);
       try {
-        const pdf = await printablePdf(browser, "A", [persons[0]]);
+        const pdf = await printablePdf(browser, "A", [persons[0]], false, "มกราคม");
         const {page,errors,messages} = await submitOnAdmin(context, pdf, "มกราคม");
         await awaitUploadSuccess(page, messages, errors);
         assert.deepEqual(errors, []);
@@ -804,6 +805,48 @@ async function main() {
         assert.deepEqual(result.errors, []);
         await result.page.close();
       } finally { await context.close(); }
+    }
+
+    // Period is checked on every page and B-half before any staging.
+    {
+      const state={rows:[],history:[]};
+      const context=await makeSandboxContext(browser,state);
+      try {
+        const mismatch=await printablePdf(browser,"A",[persons[0]]);
+        const {page,messages,errors}=await submitOnAdmin(context,mismatch,"มกราคม");
+        await until(()=>messages.some(m=>m.includes("เดือนหรือปีในสลิป")),"month mismatch");
+        assert.equal(state.rows.length,0); assert.equal(state.history.length,0);
+        assert.deepEqual(errors,[]);
+        await page.close();
+        console.log("PASS period mismatch: wrong month stopped before staging.");
+      } finally {await context.close();}
+    }
+    {
+      const state={rows:[],history:[]};
+      const context=await makeSandboxContext(browser,state);
+      try {
+        const mismatch=await printablePdf(browser,"A",[persons[0]],false,"กันยายน","2568");
+        const {page,messages,errors}=await submitOnAdmin(context,mismatch);
+        await until(()=>messages.some(m=>m.includes("เดือนหรือปีในสลิป")),"year mismatch");
+        assert.equal(state.rows.length,0); assert.equal(state.history.length,0);
+        assert.deepEqual(errors,[]);
+        await page.close();
+        console.log("PASS period mismatch: wrong year stopped before staging.");
+      } finally {await context.close();}
+    }
+    {
+      const state={rows:[],history:[]};
+      const context=await makeSandboxContext(browser,state);
+      try {
+        const mixed=await printablePdf(browser,"B",
+          [persons[0],{...persons[1],month:"ตุลาคม"}]);
+        const {page,messages,errors}=await submitOnAdmin(context,mixed);
+        await until(()=>messages.some(m=>m.includes("เดือนหรือปีในสลิป")),"B half mismatch");
+        assert.equal(state.rows.length,0); assert.equal(state.history.length,0);
+        assert.deepEqual(errors,[]);
+        await page.close();
+        console.log("PASS period mismatch: second half of B rejected.");
+      } finally {await context.close();}
     }
 
     // Local private CSV can replace the server roster without any Google
@@ -1296,7 +1339,7 @@ async function main() {
       const state = { rows: [], history: [] };
       const context = await makeSandboxContext(browser, state, large);
       try {
-        const pdf = await printablePdf(browser, "B", large);
+        const pdf = await printablePdf(browser, "B", large, false, "ตุลาคม");
         const start = Date.now();
         const {page,messages,errors} = await submitOnAdmin(context, pdf, "ตุลาคม");
         await awaitUploadSuccess(page, messages, errors, 150000);

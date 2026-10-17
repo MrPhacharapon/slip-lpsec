@@ -152,7 +152,7 @@ export function assertUniquePeriod(slips: VerifiedSlip[]): void {
 
 /**
  * The legacy template has one slip per page; the compact template allows
- * one (odd-count last page) or two. Printed month/year are not validated.
+ * one (odd-count last page) or two. Periods are checked separately.
  */
 export function validateSlipPageLayout(
   tokens: PdfToken[], pageWidth: number, pageHeight: number
@@ -182,6 +182,41 @@ export function validateSlipPageLayout(
     return "double";
   }
   return "single";
+}
+
+/**
+ * Require printed month and year in each slip heading, not only the admin
+ * selection. PDF.js may split พ.ศ. across separate text spans or NUL glyphs.
+ * Fail closed on missing, inconsistent or multiple period labels.
+ */
+export function assertSlipPagePeriod(
+  tokens: PdfToken[], pageHeight: number, layout: "single" | "double",
+  month: string, year: string,
+): void {
+  const months = [
+    "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
+    "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม",
+  ];
+  if (!months.includes(month) || !/^25\d{2}$/.test(year) ||
+      !Number.isFinite(pageHeight) || pageHeight <= 0 ||
+      (layout !== "single" && layout !== "double")) {
+    throw new SlipValidationError("เดือน ปี หรือรูปแบบสลิปไม่ถูกต้อง");
+  }
+  const regions = layout === "double" ?
+    [tokens.filter(t=>t.y>=pageHeight/2),tokens.filter(t=>t.y<pageHeight/2)]
+    : [tokens];
+  const pattern = new RegExp(
+    "ประจำเดือน("+months.join("|")+")(?:ปี)?(?:พ\\.?ศ\\.?)?(25[0-9]{2})(?![0-9])",
+    "g",
+  );
+  for (const region of regions) {
+    const extracted = normalizeText(region.map(t=>t.str).join(""))
+      .replace(/\u0000/g,"")
+      .replace(/[๐-๙]/g,d=>String(d.charCodeAt(0)-0x0e50));
+    const printed = [...extracted.matchAll(pattern)];
+    if (printed.length !== 1 || printed[0][1] !== month || printed[0][2] !== year)
+      throw new SlipValidationError("เดือนหรือปีในสลิปไม่ตรงกับที่ผู้ดูแลเลือก");
+  }
 }
 
 /** Enforce the same format throughout the uploaded payroll PDF. */

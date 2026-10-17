@@ -8,7 +8,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import type { DropResult } from '@hello-pangea/dnd';
 // @ts-expect-error - papaparse has no bundled declarations in this project
 import Papa from "papaparse";
-import { parseRoster, identifyPageSlips, assertUniquePeriod, assertSlipDocumentLayout, validateSlipPageLayout } from "@/lib/slip-validation";
+import { parseRoster, identifyPageSlips, assertUniquePeriod, assertSlipDocumentLayout, validateSlipPageLayout, assertSlipPagePeriod } from "@/lib/slip-validation";
 import { ensurePdfJsMapCompatibility } from "@/lib/pdfjs-compat";
 import type { PdfToken, RosterPerson, PageRegion } from "@/lib/slip-validation";
 
@@ -172,6 +172,7 @@ export default function AdminPage() {
           const layout = validateSlipPageLayout(
             tokens, pageWidth, pageHeight
           );
+          assertSlipPagePeriod(tokens, pageHeight, layout, selectedMonth, selectedYear);
           const identified = identifyPageSlips(tokens, pageHeight, roster);
           if ((layout === "single" && (
               identified.length !== 1 || identified[0].region !== "full"

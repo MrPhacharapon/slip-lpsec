@@ -17,6 +17,11 @@ from reportlab.pdfbase.ttfonts import TTFont
 data = json.load(sys.stdin)
 people = data["people"]
 layout = data["layout"]
+month = data.get("month", "กันยายน")
+year = str(data.get("year", "2569"))
+assert month in ("มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+                 "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม")
+assert len(year) == 4 and year.startswith("25") and year.isdigit()
 assert layout in ("A", "B")
 assert 1 <= len(people) <= 100  # synthetic workload ceiling for isolated E2E
 for p in people:
@@ -48,8 +53,9 @@ def draw_slip(person, slot, position):
     top_offset = 396 * slot
     draw_segments(770-top_offset, [
         ("FixtureThai",
-         "ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน กันยายน ปี พ.ศ. "),
-        ("Helvetica", "2569")
+         "ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน " +
+         person.get("month", month) + " ปี พ.ศ. "),
+        ("Helvetica", str(person.get("year", year)))
     ])
     draw_segments(742-top_offset, [
         ("FixtureThai", "ชื่อ -นามสกุล " + person["name"])

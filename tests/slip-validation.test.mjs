@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseRoster,identifyPageSlips,assertUniquePeriod,assertSlipDocumentLayout,SlipValidationError,validateSlipPageLayout} from '../src/lib/slip-validation.ts';
+import {parseRoster,identifyPageSlips,assertUniquePeriod,assertSlipDocumentLayout,SlipValidationError,validateSlipPageLayout,assertSlipPagePeriod} from '../src/lib/slip-validation.ts';
 
 const roster=parseRoster([
   ['ชื่อ-นามสกุล','ตำแหน่ง','เลขที่บัญชี','รายการรายรับ (เลขตำแหน่ง)'],
@@ -68,8 +68,22 @@ test('B: two headings and two slips on one page',()=>{
 test('B: odd headcount allows only one heading and one slip on the last page',()=>{
   assert.equal(validateSlipPageLayout(pageHeader('กันยายน',780),1071,792),'single');
 });
-test('printed month/year mismatch is intentionally not checked',()=>{
-  assert.equal(validateSlipPageLayout(pageHeader('เมษายน',780),1071,792),'single');
+test('period matches exactly one header per slip half',()=>{
+  const single=pageHeader('กันยายน',780);
+  const both=[...single,...pageHeader('กันยายน',384)];
+  assert.doesNotThrow(()=>assertSlipPagePeriod(single,792,'single','กันยายน','2569'));
+  assert.doesNotThrow(()=>assertSlipPagePeriod(both,792,'double','กันยายน','2569'));
+  assert.throws(()=>assertSlipPagePeriod(single,792,'single','ตุลาคม','2569'),SlipValidationError);
+  assert.throws(()=>assertSlipPagePeriod(single,792,'single','กันยายน','2568'),SlipValidationError);
+  assert.throws(()=>assertSlipPagePeriod([...single,...pageHeader('ตุลาคม',384)],792,'double','กันยายน','2569'),SlipValidationError);
+});
+test('missing duplicated and split PDF.js Thai heading year',()=>{
+  const tokens=[{str:'ใบรับรองการจ่ายเงินเดือนฯ ประจำเดือน กันยายน ปี พ\u0000ศ\u0000',y:780},
+    {str:' ๒๕๖๙',y:780}];
+  assert.doesNotThrow(()=>assertSlipPagePeriod(tokens,792,'single','กันยายน','2569'));
+  assert.throws(()=>assertSlipPagePeriod([{str:'ปี พ.ศ. 2569',y:780}],792,'single','กันยายน','2569'),SlipValidationError);
+  assert.throws(()=>assertSlipPagePeriod([...tokens,...tokens],792,'single','กันยายน','2569'),SlipValidationError);
+  assert.throws(()=>assertSlipPagePeriod(tokens,792,'single','ก.ย.','2569'),SlipValidationError);
 });
 test('unexpected PDF dimensions are rejected',()=>{
   assert.throws(()=>validateSlipPageLayout(pageHeader('มกราคม',780),595,842),SlipValidationError);
