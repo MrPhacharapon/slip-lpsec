@@ -32,7 +32,7 @@ type HistoryItem = {
   month: string;
   year: string;
   file_name: string;
-  storage_path: string;
+  storage_path: string | null;
   created_at: string;
 };
 
@@ -366,7 +366,7 @@ export default function AdminPage() {
     }
   };
 
-  const handleDelete = async (id: string, storagePath: string, month: string, year: string) => {
+  const handleDelete = async (id: string, storagePath: string | null, month: string, year: string) => {
     if (isUploading || recoveryBusy) return;
     if (storagePath) {
       alert("เดือนนี้ยังมีไฟล์ต้นฉบับใน Storage ห้ามลบผ่านหน้าเว็บ ต้องตรวจสอบสำเนาสำรองและไฟล์ต้นฉบับกับผู้ดูแลระบบก่อน");
@@ -402,8 +402,16 @@ export default function AdminPage() {
         cache: "no-store",
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error || "ลบข้อมูลไม่สำเร็จ");
-      await fetchHistory();
+      if (!response.ok || data?.success !== true || data?.deleted !== count)
+        throw new Error("ไม่สามารถยืนยันการลบได้ กรุณาตรวจสอบสถานะก่อนดำเนินการซ้ำ");
+      // Database deletion already committed. Failure to refresh history is
+      // only a UI problem; never imply that another deletion is necessary.
+      try {
+        await fetchHistory();
+      } catch {
+        alert(`ลบสลิปที่เผยแพร่ ${data.deleted} รายการแล้ว แต่โหลดประวัติไม่สำเร็จ กรุณารีเฟรชเพื่อตรวจสอบ ห้ามลบซ้ำ`);
+        return;
+      }
       alert(`ลบสลิปที่เผยแพร่ ${data.deleted} รายการแล้ว กรุณาตรวจสอบประวัติอีกครั้ง`);
     } catch (error) {
       alert(error instanceof Error ? error.message : "ดำเนินการลบไม่สำเร็จ กรุณาตรวจสอบรายการอีกครั้ง");
@@ -412,7 +420,7 @@ export default function AdminPage() {
     }
   };
 
-  const handleViewFile = (storagePath: string) => {
+  const handleViewFile = (storagePath: string | null) => {
     if (!storagePath) { alert("ไม่มีไฟล์บันทึกไว้ในระบบ"); return; }
     window.open("/api/admin/storage?path=" + encodeURIComponent(storagePath), "_blank");
   };
@@ -713,10 +721,11 @@ export default function AdminPage() {
                                 </div>
 
                                 <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end mt-2 sm:mt-0">
-                                  <button 
+                                  <button
                                     onClick={() => handleViewFile(item.storage_path)}
-                                    className="flex-1 sm:flex-none flex items-center justify-center p-2 text-slate-500 hover:text-emerald-600 bg-slate-50 hover:bg-emerald-50 rounded-xl transition-colors"
-                                    title="ดูไฟล์"
+                                    disabled={!item.storage_path}
+                                    className="flex-1 sm:flex-none flex items-center justify-center p-2 text-slate-500 hover:text-emerald-600 bg-slate-50 hover:bg-emerald-50 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                    title={item.storage_path ? "ดูไฟล์ต้นฉบับ" : "ไม่มีไฟล์ต้นฉบับบันทึกไว้"}
                                   >
                                     <Eye className="w-4 h-4 sm:mr-0" />
                                   </button>

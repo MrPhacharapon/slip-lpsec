@@ -979,6 +979,54 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // A successful published deletion remains successful even if history
+    // refresh fails afterward. Never advise a second destructive operation.
+    {
+      const historyId = "55555555-5555-4555-8555-555555555555";
+      const state = {
+        rows: [{
+          id: "66666666-6666-4666-8666-666666666666",
+          month: "มกราคม", year: "2569", bank_account: persons[0].account,
+          name: persons[0].name, pdf_base64: "SYNTHETIC_ONLY_PDF_BYTES",
+        }],
+        history: [{
+          id: historyId, month: "มกราคม", year: "2569",
+          file_name: "synthetic-refresh-test.pdf", storage_path: null,
+          created_at: new Date().toISOString(),
+        }],
+      };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        await context.route("**/api/admin/history", async route => {
+          if (route.request().method() === "GET" && state.history.length === 0) {
+            return route.fulfill({ status: 503, contentType: "application/json",
+              body: JSON.stringify({ error: "synthetic refresh outage" }) });
+          }
+          return route.continue();
+        });
+        const page = await context.newPage();
+        const messages = [];
+        page.on("dialog", async dialog => {
+          messages.push(dialog.message());
+          if (dialog.type() === "prompt") {
+            await dialog.accept("ลบสลิปที่เผยแพร่ มกราคม 2569");
+          } else await dialog.accept();
+        });
+        await page.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await page.getByText("สลิปเดือน มกราคม 2569").waitFor();
+        assert.equal(await page.locator('button[title="ไม่มีไฟล์ต้นฉบับบันทึกไว้"]').isDisabled(),
+          true, "do not offer nonexistent original PDF for new publications");
+        await page.locator('button[title="ลบข้อมูล"]').click();
+        await until(() => state.rows.length === 0 && state.history.length === 0,
+          "published synthetic deletion commits before refresh");
+        await until(() => messages.some(m => m.includes("โหลดประวัติไม่สำเร็จ") &&
+          m.includes("ห้ามลบซ้ำ")), "post-delete history warning");
+        assert.ok(!messages.some(m => m.includes("ดำเนินการลบไม่สำเร็จ")));
+        await page.close();
+        console.log("PASS post-delete refresh failure: deletion confirmed; never suggest retry.");
+      } finally { await context.close(); }
+    }
+
     // Published periods with original Storage objects require a separate
     // backup and Storage workflow, even with a valid admin session.
     {
