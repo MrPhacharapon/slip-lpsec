@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const rejected = requireAdmin(req);
   if (rejected) return rejected;
-  if (process.env.STAFF_DIRECTORY_DISABLED === "true") {
+  if (process.env.STAFF_DIRECTORY_DISABLED === "true" ||
+      process.env.PAYROLL_ROSTER_MODE === "local_csv") {
     return reply({ error: "ทะเบียนบุคลากรไม่พร้อมใช้งาน" }, 503);
   }
   const sheetId = process.env.STAFF_SHEET_ID;
