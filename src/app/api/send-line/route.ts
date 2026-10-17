@@ -44,7 +44,9 @@ export async function POST(req: NextRequest) {
       body: JSON.stringify({
         to: groupId,
         messages: [{ type: 'text', text: messageText }]
-      })
+      }),
+      // Avoid hanging a completed payroll upload on a stalled LINE provider.
+      signal: AbortSignal.timeout(8000),
     });
 
     if (!response.ok) {

@@ -8,10 +8,16 @@ test("LINE notification errors never echo untrusted upstream response bodies", (
   assert.doesNotMatch(source, /console\.(?:log|error)\s*\([^)]*errorText/);
   assert.match(source, /LINE notification failed with HTTP status/);
   assert.match(source, /LINE notification request failed/);
+  assert.match(source, /signal: AbortSignal\.timeout\(8000\)/);
+  assert.match(source, /Payroll period is not published/);
 });
 test("LINE webhook never logs an untrusted error object or raw body", () => {
   const source = readFileSync("src/app/api/line-webhook/route.ts", "utf8");
   assert.match(source, /verifyLineWebhookSignature\(rawBody/);
   assert.match(source, /LINE webhook processing failed/);
+  assert.match(source, /event\?\.source\?\.type/);
+  assert.match(source, /event\.message\?\.type/);
+  assert.match(source, /typeof event\.message\.text === 'string'/);
+  assert.match(source, /signal: AbortSignal\.timeout\(8000\)/);
   assert.doesNotMatch(source, /console\.(?:log|error)\s*\([^)]*\b(?:error|rawBody)\b/);
 });

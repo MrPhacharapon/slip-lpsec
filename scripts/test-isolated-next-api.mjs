@@ -299,6 +299,12 @@ try {
     body: { bankAccount: people[0].bank_account, ...staged },
   });
   assert.equal(prematurePdf.status, 404);
+  // A real Next.js -> Supabase Test call must block a premature LINE
+  // announcement; this never contacts LINE or any production resource.
+  const prematureLine = await call("/api/send-line", {
+    admin: true, body: staged,
+  });
+  assert.equal(prematureLine.status, 409, "unpublished period cannot be announced");
 
   const snapshot = await call("/api/admin/staged-recovery", {
     admin:true, body:staged,
@@ -331,6 +337,12 @@ try {
     admin:true, body: { ...published, fileName: fixtureName, expectedCount: 2 },
   });
   assert.equal(publish.status, 200, "atomic publication through real RPC");
+  // The sandbox intentionally has no LINE credentials. Confirm the route
+  // reaches the post-publication gate but fails safely before any network call.
+  const publishedLine = await call("/api/send-line", {
+    admin: true, body: published,
+  });
+  assert.equal(publishedLine.status, 500, "sandbox LINE delivery is disabled");
   const periodList = await call("/api/payroll/periods", { method: "GET" });
   assert.equal(periodList.status, 200);
   assert.ok(periodList.data.periods.some(x => x.month === published.month &&

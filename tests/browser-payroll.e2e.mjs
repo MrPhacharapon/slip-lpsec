@@ -4,6 +4,7 @@
  * Never connect this test to production or use real payroll files.
  */
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { chromium } from "playwright";
 import { PDFDocument } from "pdf-lib";
 import { spawn, execFileSync } from "node:child_process";
@@ -42,6 +43,8 @@ async function startServer() {
       ADMIN_SESSION_SECRET: "only-used-for-test-never-ship-this-key-0123456789",
       PAYROLL_RATE_LIMIT_SECRET: "synthetic-rate-limit-key-for-CI-not-production-2026",
       STAFF_DIRECTORY_DISABLED: "true",
+      LINE_CHANNEL_SECRET: "SYNTHETIC_ONLY_LINE_WEBHOOK_KEY_NOT_REAL",
+      LINE_CHANNEL_ACCESS_TOKEN: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
     detached: true,
@@ -370,6 +373,30 @@ async function main() {
         assert.equal(pdf.status(), 503, "PDF download fails closed when limiter cannot be reached");
         console.log("PASS fail-closed: search/PDF withheld during rate-limit service outage.");
       } finally { await visitor.close(); }
+    }
+
+    // Signed, but incomplete LINE event payloads are not server errors.
+    // No provider tokens are present, so these synthetic webhooks cannot send.
+    {
+      const client = await browser.newContext();
+      try {
+        for (const events of [[null], [{ type: "message" }],
+          [{ type: "message", source: { type: "group", groupId: "C_SYNTHETIC" },
+            replyToken: "SYNTHETIC", message: null }]]) {
+          const raw = JSON.stringify({ events });
+          const signature = createHmac("sha256",
+            "SYNTHETIC_ONLY_LINE_WEBHOOK_KEY_NOT_REAL")
+            .update(raw).digest("base64");
+          const reply = await client.request.post(base + "/api/line-webhook", {
+            headers: { "X-Line-Signature": signature,
+              "Content-Type": "application/json" },
+            data: raw,
+          });
+          assert.equal(reply.status(), 200,
+            "signed incomplete LINE event must not throw a server error");
+        }
+      } finally { await client.close(); }
+      console.log("PASS signed malformed LINE events: no exception or provider contact.");
     }
 
     // Distributed-style rate limiting applies without a staff login or OTP.

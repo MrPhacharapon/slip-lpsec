@@ -20,7 +20,7 @@ export async function POST(req: Request) {
 
     const event = body.events[0];
     
-    if (event.source && event.source.type === 'group') {
+    if (event?.source?.type === 'group' && typeof event.source.groupId === 'string') {
       const groupId = event.source.groupId;
       const replyToken = event.replyToken;
       const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
@@ -30,8 +30,9 @@ export async function POST(req: Request) {
         
         if (event.type === 'join') {
           shouldReply = true;
-        } else if (event.type === 'message' && event.message.type === 'text') {
-          if (event.message.text.includes('เช็คไอดีกลุ่ม')) {
+        } else if (event.type === 'message' && event.message?.type === 'text') {
+          if (typeof event.message.text === 'string' &&
+              event.message.text.includes('เช็คไอดีกลุ่ม')) {
             shouldReply = true;
           }
         }
@@ -48,7 +49,8 @@ export async function POST(req: Request) {
             body: JSON.stringify({
               replyToken: replyToken,
               messages: [{ type: 'text', text: replyText }]
-            })
+            }),
+            signal: AbortSignal.timeout(8000),
           });
         }
       }
