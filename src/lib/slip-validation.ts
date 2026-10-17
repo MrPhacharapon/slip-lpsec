@@ -206,7 +206,7 @@ export function assertSlipPagePeriod(
     [tokens.filter(t=>t.y>=pageHeight/2),tokens.filter(t=>t.y<pageHeight/2)]
     : [tokens];
   const pattern = new RegExp(
-    "ประจำเดือน("+months.join("|")+")(?:ปี)?(?:พ\\.?ศ\\.?)?(25[0-9]{2})(?![0-9])",
+    normalizeText("ประจำเดือน")+"("+months.join("|")+")(?:ปี)?(?:พ\\.?ศ\\.?)?(25[0-9]{2})(?![0-9])",
     "g",
   );
   for (const region of regions) {
