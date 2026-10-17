@@ -69,6 +69,19 @@ function validate(env) {
   if (env.STAFF_SHEET_ID && !/^[A-Za-z0-9_-]{20,100}$/.test(env.STAFF_SHEET_ID)) {
     errors.push("STAFF_SHEET_ID");
   }
+  // NEXT_PUBLIC_* variables can be embedded into browser JavaScript at build time.
+  // Reject even an accidentally duplicated server-only credential.
+  const serverOnlyKeys = [
+    ...Object.keys(REQUIRED_SECRET_LENGTHS),
+    "CRON_SECRET", "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN",
+    "LINE_GROUP_ID", "STAFF_SHEET_ID",
+  ];
+  for (const key of serverOnlyKeys) {
+    const publicName = "NEXT_PUBLIC_" + key;
+    if (Object.prototype.hasOwnProperty.call(env, publicName)) {
+      errors.push(publicName);
+    }
+  }
   const secrets = [...Object.keys(REQUIRED_SECRET_LENGTHS),
     "CRON_SECRET", "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN"]
     .map(key => env[key]).filter(Boolean);
