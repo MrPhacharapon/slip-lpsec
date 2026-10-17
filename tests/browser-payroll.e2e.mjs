@@ -603,13 +603,23 @@ async function main() {
       const state = { rows: [], history: [] };
       const context = await makeSandboxContext(browser, state);
       try {
-        const uncommitted = await context.request.post(base + "/api/send-line", {
-          headers: { Origin: base },
-          data: { month: "กันยายน", year: "2569" },
+        // Use the real same-origin browser Admin session. The context's
+        // request client does not reliably propagate our synthetic login.
+        await context.unroute("**/api/send-line");
+        const page = await context.newPage();
+        await page.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await page.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
+        const status = await page.evaluate(async () => {
+          const response = await fetch("/api/send-line", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month: "กันยายน", year: "2569" }),
+          });
+          return response.status;
         });
-        assert.equal(uncommitted.status(), 409,
+        assert.equal(status, 409,
           "Admin must not announce a period without a committed publication");
         assert.equal(state.history.length, 0);
+        await page.close();
         console.log("PASS LINE API: unpublished periods cannot be announced.");
       } finally { await context.close(); }
     }
