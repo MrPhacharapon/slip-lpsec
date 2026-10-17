@@ -20,6 +20,8 @@
 - `server_sheet` (ค่าเริ่มต้น): ตั้ง `STAFF_SHEET_ID` เฉพาะฝั่งเซิร์ฟเวอร์ และไม่ตั้ง `STAFF_DIRECTORY_DISABLED=true`; Admin อ่านทะเบียนผ่าน API ได้เมื่อ Google Sheet อนุญาตให้เซิร์ฟเวอร์อ่าน
 - `local_csv`: ตั้ง `STAFF_DIRECTORY_DISABLED=true`; ไม่บังคับ `STAFF_SHEET_ID`; Admin **ต้องเลือกไฟล์ CSV ส่วนตัวทุกครั้งที่อัปโหลด PDF** และเว็บบุคลากรจะใช้ชื่อจากสลิปที่เผยแพร่แล้ว โดยอาจไม่แสดงตำแหน่งที่เดิมค้นจาก Google Sheet
 
+**การป้องกันเพิ่มเติม:** เมื่อกำหนด `PAYROLL_ROSTER_MODE=local_csv` ทั้ง `GET /api/admin/roster` และ `lookupStaffDirectory` จะไม่ติดต่อ Google Sheets แม้มีการตั้ง `STAFF_DIRECTORY_DISABLED` ผิดพลาด จึงต้องให้ผู้ดูแลเลือก CSV ก่อนอัปโหลดตามโหมดนี้
+
 ห้ามนำ CSV จริงไปตั้งเป็น Environment Variable หรือ GitHub Secret โดยเด็ดขาด โหมดดังกล่าวเป็นเพียงการเตรียมทางเลือกสำหรับผู้ดูแล ยังไม่ได้อนุมัติค่าจริงใน Production
 
 ## เงื่อนไขสำคัญของ Google Sheets
