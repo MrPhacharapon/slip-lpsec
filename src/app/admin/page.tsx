@@ -290,6 +290,24 @@ export default function AdminPage() {
       } catch {
         alert("เผยแพร่สลิปสำเร็จแล้ว แต่โหลดประวัติไม่สำเร็จ กรุณารีเฟรชหน้าจอเพื่อตรวจสอบ ห้ามอัปโหลดซ้ำ");
       }
+      // LINE is a post-publication side effect only. A notification error
+      // cannot undo an already committed payroll period or invite re-upload.
+      if (notifyLine) {
+        try {
+          const notified = await fetch("/api/send-line", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month: selectedMonth, year: selectedYear }),
+            cache: "no-store",
+          });
+          const result = await notified.json().catch(() => null);
+          if (!notified.ok || result?.success !== true) {
+            throw new Error("LINE notification not acknowledged");
+          }
+        } catch {
+          alert("เผยแพร่สลิปสำเร็จแล้ว แต่ส่งแจ้งเตือน LINE ไม่สำเร็จ กรุณาตรวจสอบการแจ้งเตือนแยกต่างหาก ห้ามอัปโหลดซ้ำ");
+        }
+      }
     } catch (error) {
       console.error("Payroll import failed:", error instanceof Error ? error.message : "unknown");
       alert(error instanceof Error ? error.message : "ตรวจสอบเอกสารไม่สำเร็จ");
