@@ -1,3 +1,4 @@
+import { readSmallAdminBody } from "@/lib/server/small-admin-body";
 import { NextRequest } from "next/server";
 import { payrollDb } from "@/lib/server/payroll-db";
 import { reply, requireAdmin } from "@/lib/server/route-guards";
@@ -18,8 +19,10 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
+  const input = await readSmallAdminBody<{ ids: string[] }>(req, 16384);
+  if (!input.ok) return input.response;
   try {
-    const { ids } = await req.json();
+    const { ids } = input.body;
     if (!Array.isArray(ids) || ids.length < 1 || ids.length > 120 ||
         ids.some(x => typeof x !== "string" || x.length > 100) ||
         new Set(ids).size !== ids.length) return reply({ error: "ลำดับไม่ถูกต้อง" }, 400);

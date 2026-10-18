@@ -15,6 +15,7 @@
 | PDF ที่เก็บ | PDF ใหม่เป็นภาพหน้าเดียวของเจ้าของที่ผ่านการตรวจ | ห้ามมีข้อความหรือ Resource ของอีกคน |
 | Stage/Publish | นับจำนวน Acknowledgement ตรง, Publish Atomic, ประวัติถูกต้อง | Partial Stage ไม่แสดงต่อครู; ปฏิเสธการ Publish ซ้ำ/จำนวนไม่ตรง |
 | ขนาดชุดอัปโหลด Admin | ตรวจ Session/Origin ก่อนอ่าน JSON, จำกัดขนาดรวม 1,900,000 ไบต์ขณะ Streaming และจำนวนสลิป 1–8 ต่อคำขอ | Body เกินขนาดตอบ 413, JSON ไม่สมบูรณ์/UTF-8 ไม่ถูกต้องตอบ 400, ไม่มีการ Stage แม้เพียงบางส่วน |
+| API Admin รับ JSON ขนาดเล็ก | จำกัดขนาด Preflight/LINE 1,024, Finalize 2,048, History reorder 16,384, Recovery/Delete 4,096 ไบต์ หลัง Session/Origin และก่อน RPC | เกินขนาดตอบ 413, JSON ผิดและข้อมูลไม่ใช่ Object ตอบ 400, ไม่สั่ง RPC เมื่อคำขอผิด, ไม่ลดการตรวจ Snapshot/Publish/Backup |
 | ลบ/กู้ข้อมูล | Preview, Snapshot, สำรองและยืนยันตามเงื่อนไข | ห้ามลบที่มีไฟล์ต้นฉบับไม่ได้ป้องกัน, ห้ามลบซ้ำเพราะรีเฟรชล้มเหลว |
 | LINE | แจ้งหนึ่งครั้งหลัง Publish เมื่อเปิดตัวเลือก; Webhook ที่ลงลายเซ็นถูกต้องประมวลผลทุก Event ใน Batch และ Reply เฉพาะเหตุการณ์ Group ที่มี Token | ไม่แจ้งเมื่อปิด, ปฏิเสธลายเซ็นปลอม, ข้ามข้อมูล Event ไม่ครบ, ไม่ Reply Token ซ้ำใน Batch, จำกัด Raw Body ไม่เกิน 1,000,000 ไบต์ก่อนตรวจ HMAC, Timeout ไม่ย้อนผล Publish |
 | สภาพแวดล้อม | Test RLS+Private Storage; ไม่มี Public Write/Read | Prod ต้องผ่านการตรวจสิทธิ์และ Backup/Restore ก่อน Cutover |

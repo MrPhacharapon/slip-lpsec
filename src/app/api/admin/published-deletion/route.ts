@@ -1,3 +1,4 @@
+import { readSmallAdminBody } from "@/lib/server/small-admin-body";
 import { NextRequest } from "next/server";
 import { payrollDb } from "@/lib/server/payroll-db";
 import { reply, requireAdmin, validPeriod } from "@/lib/server/route-guards";
@@ -9,8 +10,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function POST(req: NextRequest) {
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
+  const input = await readSmallAdminBody<{ id: string; month: string; year: string }>(req, 4096);
+  if (!input.ok) return input.response;
   try {
-    const { id, month, year } = await req.json();
+    const { id, month, year } = input.body;
     if (typeof id !== "string" || !UUID.test(id) || !validPeriod(month, year))
       return reply({ error: "ข้อมูลเดือนหรือรหัสประวัติไม่ถูกต้อง" }, 400);
     const { data, error } = await payrollDb().rpc("inspect_published_payroll_deletion", {
@@ -37,8 +40,10 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
+  const input = await readSmallAdminBody<{ id: string; month: string; year: string; expectedCount: number; snapshot: string; confirmation: string; backupConfirmed: boolean }>(req, 4096);
+  if (!input.ok) return input.response;
   try {
-    const { id, month, year, expectedCount, snapshot, confirmation, backupConfirmed } = await req.json();
+    const { id, month, year, expectedCount, snapshot, confirmation, backupConfirmed } = input.body;
     if (typeof id !== "string" || !UUID.test(id) || !validPeriod(month, year) ||
         !Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > 500 ||
         typeof snapshot !== "string" || !/^[a-f0-9]{64}$/.test(snapshot) ||

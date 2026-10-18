@@ -362,6 +362,35 @@ async function main() {
         assert.equal(state.rows.length, 0,
           "oversized, malformed or empty requests must never stage records");
         console.log("PASS bounded Admin stage JSON: oversized 413, malformed 400, invalid batch 400.");
+        // Bounded Admin JSON is enforced *after* signed session/Origin,
+        // but before any database operation on all small write endpoints.
+        for (const { path, method, maxBytes } of [
+          { path: "/api/admin/preflight", method: "POST", maxBytes: 1024 },
+          { path: "/api/admin/finalize", method: "POST", maxBytes: 2048 },
+          { path: "/api/admin/history", method: "PATCH", maxBytes: 16384 },
+          { path: "/api/admin/staged-recovery", method: "POST", maxBytes: 4096 },
+          { path: "/api/admin/staged-recovery", method: "DELETE", maxBytes: 4096 },
+          { path: "/api/admin/published-deletion", method: "POST", maxBytes: 4096 },
+          { path: "/api/admin/published-deletion", method: "DELETE", maxBytes: 4096 },
+          { path: "/api/send-line", method: "POST", maxBytes: 1024 },
+        ]) {
+          const headers = { Origin: base, Cookie: signedCookie,
+            "Content-Type": "application/json" };
+          const huge = await context.request.fetch(base + path, {
+            method, headers, data: Buffer.alloc(maxBytes + 100, 0x78),
+          });
+          assert.equal(huge.status(), 413,
+            "Admin route must reject overlarge JSON: " + method + " " + path);
+          const invalid = await context.request.fetch(base + path, {
+            method, headers, data: Buffer.from('{"incomplete":', "utf8"),
+          });
+          assert.equal(invalid.status(), 400,
+            "Admin route must reject malformed JSON: " + method + " " + path);
+        }
+        assert.equal(state.rows.length, 0,
+          "bounded Admin checks must not write fictional slips");
+        console.log("PASS bounded Admin JSON: 8 handlers reject oversized 413 and malformed 400.");
+
 
 
         const pdfDocument = await PDFDocument.create();

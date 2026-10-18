@@ -1,3 +1,4 @@
+import { readSmallAdminBody } from "@/lib/server/small-admin-body";
 import { NextRequest } from "next/server";
 import { payrollDb } from "@/lib/server/payroll-db";
 import { reply, requireAdmin, validPeriod } from "@/lib/server/route-guards";
@@ -5,8 +6,10 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
+  const input = await readSmallAdminBody<{ month: string; year: string }>(req, 1024);
+  if (!input.ok) return input.response;
   try {
-    const { month, year } = await req.json();
+    const { month, year } = input.body;
     if (!validPeriod(month, year)) return reply({ error: "เดือนหรือปีไม่ถูกต้อง" }, 400);
     const db = payrollDb();
     const [slips, history] = await Promise.all([

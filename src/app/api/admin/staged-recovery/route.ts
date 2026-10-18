@@ -1,3 +1,4 @@
+import { readSmallAdminBody } from "@/lib/server/small-admin-body";
 import { NextRequest } from "next/server";
 import { payrollDb } from "@/lib/server/payroll-db";
 import { reply, requireAdmin, validPeriod } from "@/lib/server/route-guards";
@@ -9,8 +10,10 @@ type Snapshot = { published: boolean; stagedCount: number; snapshot: string | nu
 export async function POST(req: NextRequest) {
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
+  const input = await readSmallAdminBody<{ month: string; year: string }>(req, 4096);
+  if (!input.ok) return input.response;
   try {
-    const { month, year } = await req.json();
+    const { month, year } = input.body;
     if (!validPeriod(month, year)) return reply({ error: "เดือนหรือปีไม่ถูกต้อง" }, 400);
     const { data, error } = await payrollDb().rpc("inspect_unpublished_payroll_period", {
       p_month: month, p_year: year,
@@ -31,8 +34,10 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
+  const input = await readSmallAdminBody<{ month: string; year: string; expectedCount: number; snapshot: string; confirmation: string }>(req, 4096);
+  if (!input.ok) return input.response;
   try {
-    const { month, year, expectedCount, snapshot, confirmation } = await req.json();
+    const { month, year, expectedCount, snapshot, confirmation } = input.body;
     if (!validPeriod(month, year) ||
       !Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > 500 ||
       typeof snapshot !== "string" || !/^[a-f0-9]{64}$/.test(snapshot) ||

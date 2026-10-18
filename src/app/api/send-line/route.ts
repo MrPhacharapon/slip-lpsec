@@ -1,3 +1,4 @@
+import { readSmallAdminBody } from "@/lib/server/small-admin-body";
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin, validPeriod } from "@/lib/server/route-guards";
 import { payrollDb } from "@/lib/server/payroll-db";
@@ -5,9 +6,10 @@ import { payrollDb } from "@/lib/server/payroll-db";
 export async function POST(req: NextRequest) {
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
+  const input = await readSmallAdminBody<{ month: string; year: string }>(req, 1024);
+  if (!input.ok) return input.response;
   try {
-    const body = await req.json();
-    const { month, year } = body;
+    const { month, year } = input.body;
 
     if (!validPeriod(month, year)) {
       return NextResponse.json({ error: 'Missing month or year' }, { status: 400 });

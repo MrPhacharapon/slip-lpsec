@@ -1,3 +1,4 @@
+import { readSmallAdminBody } from "@/lib/server/small-admin-body";
 import { NextRequest } from "next/server";
 import { payrollDb } from "@/lib/server/payroll-db";
 import { reply, requireAdmin, validPeriod } from "@/lib/server/route-guards";
@@ -5,8 +6,10 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
+  const input = await readSmallAdminBody<{ month: string; year: string; fileName: string; expectedCount: number }>(req, 2048);
+  if (!input.ok) return input.response;
   try {
-    const { month, year, fileName, expectedCount } = await req.json();
+    const { month, year, fileName, expectedCount } = input.body;
     if (!validPeriod(month, year) ||
         typeof fileName !== "string" || !fileName.toLowerCase().endsWith(".pdf") ||
         fileName.length > 200 || !Number.isInteger(expectedCount) ||
