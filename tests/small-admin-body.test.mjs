@@ -1,43 +1,48 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { readSmallAdminBody } from "../src/lib/server/small-admin-body.ts";
+import { readBoundedJson, RequestPayloadTooLarge } from "../src/lib/server/bounded-json.ts";
 
 function req(data) {
   return new Request("http://localhost/api/admin/preflight", { method:"POST", body:data,
     headers:{"content-type":"application/json"} });
 }
 
-test("small Admin JSON helper accepts an exact UTF-8 byte boundary", async () => {
-  const text = '{"month":"ตุลาคม","year":"2569"}';
-  const result = await readSmallAdminBody(req(text), Buffer.byteLength(text));
-  assert.equal(result.ok, true);
-  if (result.ok) assert.deepEqual(result.body, {month:"ตุลาคม",year:"2569"});
+// The production HTTP wrapper imports Next.js, so response status is exercised
+// by REAL Next.js browser E2E. These unit tests cover the shared byte parser.
+test("bounded Admin JSON parsing accepts an exact UTF-8 byte boundary", async () => {
+  const data = '{"month":"ตุลาคม","year":"2569"}';
+  assert.deepEqual(await readBoundedJson(req(data), Buffer.byteLength(data)),
+    { month:"ตุลาคม", year:"2569" });
 });
-test("Admin JSON helper refuses overflow even when chunked", async () => {
-  const oversized = await readSmallAdminBody(req("x".repeat(4097)), 4096);
-  assert.equal(oversized.ok, false);
-  if (!oversized.ok) assert.equal(oversized.response.status, 413);
+test("bounded Admin JSON parsing rejects overflow even on chunked uploads", async () => {
+  await assert.rejects(readBoundedJson(req("x".repeat(4097)), 4096),
+    RequestPayloadTooLarge);
   let wasCancelled = false;
   const stream = new ReadableStream({
-    start(c){ c.enqueue(new TextEncoder().encode("A".repeat(1000)));c.enqueue(new TextEncoder().encode("B".repeat(50)));},
-    cancel(){wasCancelled=true;},
+    start(c) {
+      c.enqueue(new TextEncoder().encode("A".repeat(1000)));
+      c.enqueue(new TextEncoder().encode("B".repeat(50)));
+    },
+    cancel() { wasCancelled=true; },
   });
-  const request = new Request("http://localhost/", {method:"POST",body:stream,duplex:"half"});
-  const result = await readSmallAdminBody(request, 1024);
-  assert.equal(result.ok, false);
-  if (!result.ok) assert.equal(result.response.status, 413);
-  assert.equal(wasCancelled, true);
+  const request = new Request("http://localhost/", { method:"POST",body:stream,duplex:"half" });
+  await assert.rejects(readBoundedJson(request, 1024), RequestPayloadTooLarge);
+  assert.equal(wasCancelled,true);
 });
-test("Admin JSON helper responds 400 to malformed, null, arrays and invalid UTF-8", async () => {
-  for(const body of ['{"month":', "null", "[]", '"string"', "123",
-    Uint8Array.from([0x7b,0x22,0xc3,0x28,0x22,0x3a,0x31,0x7d])]) {
-    const result = await readSmallAdminBody(req(body), 1024);
-    assert.equal(result.ok,false);
-    if(!result.ok) assert.equal(result.response.status,400);
+test("bounded Admin JSON parser rejects malformed text and invalid UTF-8", async () => {
+  for(const data of ['{"month":',Uint8Array.from([0x7b,0x22,0xc3,0x28,0x22,0x3a,0x31,0x7d])]) {
+    await assert.rejects(readBoundedJson(req(data),1024));
   }
 });
-test("all small Admin write endpoints authenticate before bounded streaming, with no raw JSON parse", () => {
+test("Admin HTTP wrapper rejects JSON primitives/null/arrays and maps bytes to 413", () => {
+  const code = readFileSync("src/lib/server/small-admin-body.ts","utf8");
+  assert.match(code,/readBoundedJson\(req, maxBytes\)/);
+  assert.match(code,/typeof value !== "object" \|\| Array\.isArray\(value\)/);
+  assert.match(code,/RequestPayloadTooLarge \? 413 : 400/);
+  assert.doesNotMatch(code,/console\.(?:log|error)/);
+});
+test("all eight small Admin handlers authenticate before body streaming and DB calls", () => {
   for (const [path,limit,methods] of [
     ["src/app/api/admin/preflight/route.ts",1024,["POST"]],
     ["src/app/api/admin/finalize/route.ts",2048,["POST"]],
@@ -48,10 +53,17 @@ test("all small Admin write endpoints authenticate before bounded streaming, wit
   ]) {
     const code=readFileSync(path,"utf8");
     assert.doesNotMatch(code,/await req\.json\(\)/,path);
-    assert.match(code,/requireAdmin\(req, true\)/,path);
-    assert.ok(code.indexOf("requireAdmin(req, true)")<code.indexOf("readSmallAdminBody("),path);
-    assert.ok(code.includes("readSmallAdminBody(req, "+limit+")") ||
-      code.includes("readSmallAdminBody<"),path);
     assert.equal((code.match(/readSmallAdminBody</g)??[]).length,methods.length,path);
+    for (const method of methods) {
+      const start=code.indexOf("export async function "+method+"(");
+      assert.ok(start>=0,path+" "+method);
+      const end=code.indexOf("export async function ",start+20);
+      const functionCode=code.slice(start,end<0?undefined:end);
+      const auth=functionCode.indexOf("requireAdmin(req, true)");
+      const parser=functionCode.indexOf("readSmallAdminBody<");
+      assert.ok(auth>=0 && parser>auth,path+" "+method+" must authenticate first");
+      assert.ok(functionCode.includes(">(req, "+limit+")"),path+" "+method+" maxBytes");
+      assert.ok(functionCode.includes("if (!input.ok) return input.response"),path);
+    }
   }
 });

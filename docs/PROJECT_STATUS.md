@@ -25,7 +25,9 @@
 - ชุดล่าสุดจำกัดการอ่าน Admin Stage/Upload Request Body ที่ 1,900,000 **ไบต์** ก่อนแปลง JSON, ส่ง 413 เมื่อเกินขนาด และ 400 เมื่อ JSON ไม่ถูกต้อง พร้อมทดสอบว่าไม่เพิ่มข้อมูล Stage
 - Commit `07fb693` ผ่าน Quality, Sandbox และ `validate` รวม 122/122 Unit Tests กับ 5/5 Synthetic PDF.js
 - ชุดแก้ไขปัจจุบันเพิ่ม Shared Bounded Admin JSON Parser ให้ API ที่เหลือ 8 จุด (Preflight, Finalize, History, Recovery, Published Deletion, LINE) จำกัดขนาด **ระหว่างอ่าน** และแยก HTTP 400/413 ก่อนเรียกฐานข้อมูล โดยคง Session, Origin, Snapshot และ Atomic RPC เดิม
-- **ยังไม่อ้างว่า Commit ใหม่นี้ผ่าน CI** จนกว่าจะยืนยันงานทดสอบที่ SHA ใหม่ครบ
+- CI SHA `d78f1c7` มีความล้มเหลวใน Unit Test Loader (Node native strip-types โหลด extensionless import ที่อยู่ภายใน Next.js route wrapper ไม่ได้); Browser E2E รันใน Next.js จริง ไม่ใช่หลักฐานว่า SHA นี้ผ่าน Quality
+- ชุดแก้ไขถัดไปทดสอบ Streaming parser โดยตรงผ่าน Node และทดสอบ HTTP wrapper ผ่าน Browser E2E ที่รันกับ Next.js จริง; เพิ่มกรณี JSON null สำหรับครบทั้ง 8 handlers และปรับ Structural Tests ให้ตรวจลำดับ Session ก่อนอ่าน Request
+- **Commit แก้ไขยังไม่ถือว่าผ่าน CI** จนกว่าทั้ง Quality, Sandbox และ `validate` จะผ่าน SHA เดียวกัน
 
 ## Release Gates — NO-GO
 | Gate | สถานะและเงื่อนไขที่ขาด |

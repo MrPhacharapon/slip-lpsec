@@ -386,6 +386,11 @@ async function main() {
           });
           assert.equal(invalid.status(), 400,
             "Admin route must reject malformed JSON: " + method + " " + path);
+          const nullBody = await context.request.fetch(base + path, {
+            method, headers, data: Buffer.from("null", "utf8"),
+          });
+          assert.equal(nullBody.status(), 400,
+            "Admin route must reject JSON null: " + method + " " + path);
         }
         assert.equal(state.rows.length, 0,
           "bounded Admin checks must not write fictional slips");
