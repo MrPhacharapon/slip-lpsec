@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { readBoundedJson, RequestPayloadTooLarge } from "@/lib/server/bounded-json";
 import { payrollDb } from "@/lib/server/payroll-db";
 import { requirePayrollRateLimit } from "@/lib/server/payroll-rate-limit";
 import { noStoreHeaders, reply, requireSameOrigin, validAccount, validPeriod } from "@/lib/server/route-guards";
@@ -7,10 +8,17 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const rejected = requireSameOrigin(req);
   if (rejected) return rejected;
+  let input: { bankAccount?: string; month?: string; year?: string } | null;
   try {
-    const { bankAccount, month, year } = await req.json();
-    if (!validAccount(bankAccount) || !validPeriod(month, year))
-      return reply({ error: "ข้อมูลค้นหาไม่ถูกต้อง" }, 400);
+    input = await readBoundedJson(req, 1024) as typeof input;
+  } catch (error) {
+    return reply({ error: "ข้อมูลค้นหาไม่ถูกต้องหรือมีขนาดใหญ่เกินกำหนด" },
+      error instanceof RequestPayloadTooLarge ? 413 : 400);
+  }
+  const { bankAccount, month, year } = input ?? {};
+  if (!validAccount(bankAccount) || !validPeriod(month, year))
+    return reply({ error: "ข้อมูลค้นหาไม่ถูกต้อง" }, 400);
+  try {
     const limited = await requirePayrollRateLimit(req, "pdf", bankAccount);
     if (limited) return limited;
     const db = payrollDb();

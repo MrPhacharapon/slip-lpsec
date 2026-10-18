@@ -400,6 +400,33 @@ async function main() {
       console.log("PASS signed malformed LINE events: no exception or provider contact.");
     }
 
+    // Public lookup/PDF endpoints must cap JSON request bytes before parsing,
+    // including attempts to bypass normal bank-account validation.
+    {
+      setMockState({ rows: [], history: [] });
+      const visitor = await browser.newContext();
+      try {
+        for (const endpoint of ["/api/payroll/search", "/api/payroll/pdf"]) {
+          const oversized = await visitor.request.post(base + endpoint, {
+            headers: { Origin: base },
+            data: { bankAccount: "9".repeat(1500),
+              ...(endpoint.endsWith("/pdf") ? { month: "กันยายน", year: "2569" } : {}) },
+          });
+          assert.equal(oversized.status(), 413, "oversized JSON must be rejected before database access");
+          const malformed = await visitor.request.post(base + endpoint, {
+            headers: { Origin: base, "Content-Type": "application/json" },
+            data: '{"bankAccount":',
+          });
+          assert.equal(malformed.status(), 400, "invalid JSON must not cause 503");
+        }
+        const ordinary = await visitor.request.post(base + "/api/payroll/search", {
+          headers: { Origin: base }, data: { bankAccount: "9000000123" },
+        });
+        assert.equal(ordinary.status(), 200, "valid small bank-account-only lookup still works");
+        console.log("PASS bounded public JSON: oversize 413, malformed 400, valid lookup 200.");
+      } finally { await visitor.close(); }
+    }
+
     // Distributed-style rate limiting applies without a staff login or OTP.
     {
       setMockState({ rows: [], history: [] });
