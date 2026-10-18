@@ -20,10 +20,14 @@ test("project documents carry all release gates and current printed-period rule"
   assert.match(acceptance, /เดือน–ปีที่พิมพ์/);
   assert.match(status, /NO-GO/);
   for (let n = 1; n <= 8; n++) assert.ok(status.includes("G" + n));
-  // Verify evidence provenance rather than freezing the exact prose
-  // of an older status snapshot. A pending new SHA is never a CI pass.
-  assert.ok(status.includes("ล่าสุดที่ **ยืนยัน CI ผ่าน**"));
-  assert.match(status, /ยังไม่อ้างว่าชุด Commit ล่าสุดผ่าน CI/);
+  // Check stable evidence provenance, not a sentence rewritten each run.
+  const verifiedLine = status.split("\n").find(line =>
+    line.includes("ล่าสุดที่ **ยืนยัน CI ผ่าน**"));
+  assert.ok(verifiedLine && /`[a-f0-9]{40}`/.test(verifiedLine),
+    "the last verified CI SHA must be an exact commit identifier");
+  assert.ok(status.includes("https://github.com/MrPhacharapon/slip-lpsec/actions/runs/"));
+  assert.ok(status.includes("SUCCESS สำหรับ SHA เดิม"));
+  assert.ok(status.includes("Draft Pull Request"));
 });
 
 test("CI separates suites, cancels outdated pushes and fails closed on both results", () => {
