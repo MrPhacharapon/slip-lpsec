@@ -3,8 +3,8 @@
 
 ## หลักฐานก่อนชุดแก้ไขล่าสุด
 - Repository: `MrPhacharapon/slip-lpsec`
-- Branch ทดสอบ: `fix/payroll-pdf-validation-no-deploy`; ล่าสุดที่ **ยืนยัน CI ผ่าน**: `c630e70d114511464d90e2b582114a8ded7ce435`
-- GitHub Actions: [Run #39137344790](https://github.com/MrPhacharapon/slip-lpsec/actions/runs/39137344790) — **SUCCESS สำหรับ SHA เดิม**; Unit 99/99, PDF.js สมมติ 5/5, TypeScript, ESLint, Build และ Browser Mock E2E ผ่าน
+- Branch ทดสอบ: `fix/payroll-pdf-validation-no-deploy`; ล่าสุดที่ **ยืนยัน CI ผ่าน**: `87ccce2649bc93145e30b21f4de69f566dcb728a`
+- GitHub Actions: [Run #39138596689](https://github.com/MrPhacharapon/slip-lpsec/actions/runs/39138596689) — **SUCCESS สำหรับ SHA เดิม**; Unit 105/105, PDF.js สมมติ 5/5, TypeScript, ESLint, Build และ Browser Mock E2E ผ่าน
 - Production Main: `fdced74510f57ab83a758642f2edba08dad0b316`; Vercel Production READY ที่ Commit เดิม ไม่ได้ Deploy จาก Branch นี้
 - Supabase Test: `slips=0`, `upload_history=0`, `storage.objects=0`, `rate_limits=0`; bucket slips เป็น Private
 - Supabase Production: `slips=338`, `upload_history=9`, `storage.objects=12`; RLS ปิด 2 ตารางและ Storage slips เป็น Public
@@ -12,14 +12,14 @@
 - ข้อมูลนี้อ่านเฉพาะจำนวนและสถานะ ไม่เรียก PDF จริง รายชื่อ เลขบัญชีหรือ Key
 
 ## สิ่งที่ทำแล้วและงานที่กำลังตรวจ
-- Commit `c630e70` ผ่าน Quality, Browser E2E และ Aggregate `validate` จริง; CI checks อ้างอิง SHA เดียวกัน
-- ชุดปรับปรุงปัจจุบัน: จำกัดการอ่าน JSON ของ Public Search/PDF API ที่ 1,024 ไบต์ ก่อน Parse แม้เป็น Chunked Request; เพิ่ม Unit/Boundary Tests และ Browser E2E สำหรับ HTTP 413/400; ไม่เปลี่ยนขั้นตอนค้นหาบัญชี 10 หลักหรือสิทธิ์อื่น
+- Commit `87ccce2` ผ่าน Quality, Browser E2E และ Aggregate `validate` จริง; เพิ่มขนาดคำขอสูงสุด 1,024 ไบต์ใน Public Search/PDF API
+- ชุดปรับปรุงปัจจุบัน: ประมวลผล LINE Webhook แบบหลาย Events ตามเอกสาร LINE แทนอ่านเฉพาะ Events[0], ตรวจลายเซ็นก่อนแยกเหตุการณ์, ตรวจ replyToken ซ้ำภายใน Batch และส่ง Reply อย่างมีขีดจำกัด Concurrency ไม่แสดงข้อมูล LINE/Provider ใน Logs
 - **ยังไม่อ้างว่าชุด Commit ล่าสุดผ่าน CI** จนกว่าจะมีผลของ SHA ใหม่ตรงกันทั้งสอง Jobs และ Aggregate Gate
 
 ## Release Gates — NO-GO
 | Gate | สถานะและเงื่อนไขที่ขาด |
 |---|---|
-| G1: Exact SHA CI | c630e70 ผ่าน; ชุดปรับปรุงล่าสุดต้องตรวจผล CI ตาม SHA ใหม่ |
+| G1: Exact SHA CI | 87ccce2 ผ่าน; ชุดปรับปรุงล่าสุดต้องตรวจผล CI ตาม SHA ใหม่ |
 | G2: Next.js → Supabase Test จริง | **NO-GO**; ต้องทดสอบด้วย Test-only Service-role Key ในพื้นที่ส่วนตัว |
 | G3: PDF จริงทุกเดือน | **NO-GO**; ต้องใช้ PDF.js และทะเบียนจริงบนเครื่องผู้มีสิทธิ์ |
 | G4: Backup และ Restore DB + Storage จริง | **NO-GO**; ตรวจสำเนา Hash อย่างเดียวยังไม่เพียงพอ |

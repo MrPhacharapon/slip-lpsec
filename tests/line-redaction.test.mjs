@@ -15,9 +15,14 @@ test("LINE webhook never logs an untrusted error object or raw body", () => {
   const source = readFileSync("src/app/api/line-webhook/route.ts", "utf8");
   assert.match(source, /verifyLineWebhookSignature\(rawBody/);
   assert.match(source, /LINE webhook processing failed/);
-  assert.match(source, /event\?\.source\?\.type/);
-  assert.match(source, /event\.message\?\.type/);
-  assert.match(source, /typeof event\.message\.text === 'string'/);
+  assert.match(source, /collectLineGroupReplies\(body\.events\)/);
+  assert.match(source, /Promise\.allSettled/);
+  const eventParser = readFileSync("src/lib/server/line-webhook-events.ts", "utf8");
+  assert.match(eventParser, /event\?\.source\?\.type/);
+  assert.match(eventParser, /event\.message\?\.type/);
+  assert.match(eventParser, /typeof event\.message\.text === "string"/);
   assert.match(source, /signal: AbortSignal\.timeout\(8000\)/);
   assert.doesNotMatch(source, /console\.(?:log|error)\s*\([^)]*\b(?:error|rawBody)\b/);
+  assert.match(source, /LINE webhook reply failed/);
+  assert.doesNotMatch(source, /response\.text\s*\(/);
 });

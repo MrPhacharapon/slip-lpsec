@@ -1,65 +1,63 @@
 import { NextResponse } from "next/server";
 import { verifyLineWebhookSignature } from "@/lib/server/line-signature";
+import { collectLineGroupReplies } from "@/lib/server/line-webhook-events";
 
 export async function POST(req: Request) {
   try {
-    // LINE signs the exact raw body. Parsing before verification would break
-    // the HMAC and could allow unauthenticated callers to impersonate LINE.
+    // LINE signs the exact raw body, not parsed JSON. Never process an event
+    // until its original webhook signature has been verified.
     const rawBody = await req.text();
     if (!verifyLineWebhookSignature(rawBody, req.headers.get("x-line-signature"))) {
       return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });
     }
-    const body = JSON.parse(rawBody);
+    let body: { events?: unknown } | null;
+    try {
+      body = JSON.parse(rawBody);
+    } catch {
+      return NextResponse.json({ error: "Invalid webhook body" }, { status: 400 });
+    }
     if (!body || !Array.isArray(body.events)) {
       return NextResponse.json({ error: "Invalid webhook body" }, { status: 400 });
     }
 
-    if (body.events.length === 0) {
-      return NextResponse.json({ status: 'ok' });
-    }
-
-    const event = body.events[0];
-    
-    if (event?.source?.type === 'group' && typeof event.source.groupId === 'string') {
-      const groupId = event.source.groupId;
-      const replyToken = event.replyToken;
-      const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-
-      if (replyToken && channelAccessToken && (event.type === 'join' || event.type === 'message')) {
-        let shouldReply = false;
-        
-        if (event.type === 'join') {
-          shouldReply = true;
-        } else if (event.type === 'message' && event.message?.type === 'text') {
-          if (typeof event.message.text === 'string' &&
-              event.message.text.includes('เช็คไอดีกลุ่ม')) {
-            shouldReply = true;
-          }
-        }
-
-        if (shouldReply) {
-          const replyText = `สวัสดีครับ! บอทสลิปเงินเดือนพร้อมใช้งานแล้ว\n\nรหัสกลุ่ม (Group ID) ของคุณคือ:\n${groupId}\n\nกรุณาคัดลอกรหัสนี้ไปใส่ใน Vercel Environment Variables ในชื่อ LINE_GROUP_ID ครับ`;
-          
-          await fetch('https://api.line.me/v2/bot/message/reply', {
-            method: 'POST',
+    // A single signed webhook may contain several unrelated or group events;
+    // processing only events[0] silently drops later group-ID requests.
+    const commands = collectLineGroupReplies(body.events);
+    const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    if (channelAccessToken && commands.length > 0) {
+      let replyFailed = false;
+      // Bound concurrent provider requests without silently dropping events.
+      for (let i = 0; i < commands.length; i += 4) {
+        const batch = commands.slice(i, i + 4);
+        const results = await Promise.allSettled(batch.map(async command => {
+          const replyText = `สวัสดีครับ! บอทสลิปเงินเดือนพร้อมใช้งานแล้ว\n\nรหัสกลุ่ม (Group ID) ของคุณคือ:\n${command.groupId}\n\nกรุณาคัดลอกรหัสนี้ไปใส่ใน Vercel Environment Variables ในชื่อ LINE_GROUP_ID ครับ`;
+          const response = await fetch("https://api.line.me/v2/bot/message/reply", {
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${channelAccessToken}`
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${channelAccessToken}`,
             },
             body: JSON.stringify({
-              replyToken: replyToken,
-              messages: [{ type: 'text', text: replyText }]
+              replyToken: command.replyToken,
+              messages: [{ type: "text", text: replyText }],
             }),
             signal: AbortSignal.timeout(8000),
           });
+          return response.ok;
+        }));
+        if (results.some(r => r.status === "rejected" || !r.value)) {
+          replyFailed = true;
         }
       }
+      // Always acknowledge a valid signed webhook. A 5xx after a partial
+      // provider success can trigger LINE redelivery of the entire batch,
+      // duplicating replies for tokens already attempted.
+      if (replyFailed) console.error("LINE webhook reply failed");
     }
-
-    return NextResponse.json({ status: 'ok' });
+    return NextResponse.json({ status: "ok" });
   } catch {
-    // Never log the raw LINE webhook body or arbitrary provider errors.
-    console.error('LINE webhook processing failed');
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    // Never log LINE event text, group IDs, reply tokens or provider bodies.
+    console.error("LINE webhook processing failed");
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

@@ -383,7 +383,9 @@ async function main() {
       try {
         for (const events of [[null], [{ type: "message" }],
           [{ type: "message", source: { type: "group", groupId: "C_SYNTHETIC" },
-            replyToken: "SYNTHETIC", message: null }]]) {
+            replyToken: "SYNTHETIC", message: null }],
+          [null, { type: "join", source: { type: "group", groupId: "C_SYNTHETIC" },
+            replyToken: "SYNTHETIC_LATER" }]]) {
           const raw = JSON.stringify({ events });
           const signature = createHmac("sha256",
             "SYNTHETIC_ONLY_LINE_WEBHOOK_KEY_NOT_REAL")
@@ -394,8 +396,26 @@ async function main() {
             data: raw,
           });
           assert.equal(reply.status(), 200,
-            "signed incomplete LINE event must not throw a server error");
+            "signed incomplete or batched LINE events must not throw a server error");
         }
+        const invalidJson = '{"events":';
+        const invalidSignature = createHmac("sha256",
+          "SYNTHETIC_ONLY_LINE_WEBHOOK_KEY_NOT_REAL")
+          .update(invalidJson).digest("base64");
+        const malformed = await client.request.post(base + "/api/line-webhook", {
+          headers: { "X-Line-Signature": invalidSignature,
+            "Content-Type": "application/json" },
+          data: invalidJson,
+        });
+        assert.equal(malformed.status(), 400,
+          "signed malformed JSON should be client error, not server failure");
+        const unsigned = await client.request.post(base + "/api/line-webhook", {
+          headers: { "X-Line-Signature": "INVALID",
+            "Content-Type": "application/json" },
+          data: JSON.stringify({ events: [] }),
+        });
+        assert.equal(unsigned.status(), 401,
+          "unsigned/forged webhook must never reach event processing");
       } finally { await client.close(); }
       console.log("PASS signed malformed LINE events: no exception or provider contact.");
     }
