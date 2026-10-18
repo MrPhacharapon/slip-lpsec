@@ -53,6 +53,22 @@ test("success is reported only after the cleanup block", () => {
   assert.doesNotMatch(source.slice(0, cleanupIndex), /console\.log\("PASS: real Next\.js APIs/);
 });
 
+test("isolated private Test runner refuses unverified or nonempty Storage BEFORE writes", () => {
+  const source = readFileSync(script, "utf8");
+  const preflight = source.slice(source.indexOf("async function assertEntireSandboxEmpty()"),
+    source.indexOf("async function assertUnused("));
+  assert.match(preflight, /db\.from\("slips"\)/);
+  assert.match(preflight, /db\.from\("upload_history"\)/);
+  assert.match(preflight, /db\.storage\.from\("slips"\)\.list\("", \{ limit: 1 \}\)/);
+  assert.match(preflight, /db\.storage\.from\("slips"\)\.list\("qa", \{ limit: 1 \}\)/);
+  assert.match(preflight, /rootStorage\.error \|\| qaStorage\.error/);
+  assert.match(preflight, /rootStorage\.data\.length !== 0 \|\| qaStorage\.data\.length !== 0/);
+  assert.ok(source.indexOf("await assertEntireSandboxEmpty()") <
+    source.indexOf("await assertUnused(staged)"));
+  assert.ok(source.indexOf("await assertEntireSandboxEmpty()") <
+    source.indexOf("await startPrivateNext()"));
+});
+
 test("sandbox runner checks SQL and private Storage after cleanup", () => {
   const source = readFileSync(script, "utf8");
   assert.match(source, /async function verifyCleanup\(\)/);

@@ -41,3 +41,13 @@ test("CI separates suites, cancels outdated pushes and fails closed on both resu
   assert.doesNotMatch(ci, /vercel (?:deploy|--prod|promote)/);
   assert.doesNotMatch(ci, /supabase db (?:push|reset)/);
 });
+
+test("every third-party CI action reference uses a verified immutable SHA", () => {
+  const ci = read(".github/workflows/payroll-pdf-validation.yml");
+  const actions = [...ci.matchAll(/^\s+- uses: ([^\s#]+)/gm)].map(m => m[1]);
+  assert.equal(actions.length, 5, "review and pin any newly added GitHub Action");
+  for (const action of actions) {
+    assert.match(action, /^actions\/(?:checkout|setup-node|setup-python)@[0-9a-f]{40}$/);
+  }
+  assert.doesNotMatch(ci, /uses:\s+[^\s]+@v\d+/);
+});

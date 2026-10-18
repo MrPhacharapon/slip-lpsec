@@ -69,12 +69,20 @@ function requireData(result, label) {
 async function assertEntireSandboxEmpty() {
   // In particular, never attempt an all-history reorder or any Test
   // write on a project containing records from another run/operator.
-  const [slips, histories] = await Promise.all([
+  // Read-only Storage listing must find neither root objects nor folder prefixes.
+  // Check qa explicitly as well so a previous failed synthetic run is visible.
+  // Never display filenames/paths from a private bucket.
+  const [slips, histories, rootStorage, qaStorage] = await Promise.all([
     db.from("slips").select("id", { count: "exact", head: true }),
     db.from("upload_history").select("id", { count: "exact", head: true }),
+    db.storage.from("slips").list("", { limit: 1 }),
+    db.storage.from("slips").list("qa", { limit: 1 }),
   ]);
-  if (slips.error || histories.error || slips.count !== 0 || histories.count !== 0) {
-    throw new Error("Private Test project is not empty; no synthetic writes permitted");
+  if (slips.error || histories.error || slips.count !== 0 || histories.count !== 0 ||
+      rootStorage.error || qaStorage.error ||
+      !Array.isArray(rootStorage.data) || !Array.isArray(qaStorage.data) ||
+      rootStorage.data.length !== 0 || qaStorage.data.length !== 0) {
+    throw new Error("Private Test project is not empty or cannot verify Storage; no synthetic writes permitted");
   }
 }
 
