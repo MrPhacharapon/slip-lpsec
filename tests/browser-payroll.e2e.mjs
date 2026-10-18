@@ -337,6 +337,32 @@ async function main() {
         }
         assert.equal(state.rows.length, 0, "cross-site mutation wrote no staged slips");
         console.log("PASS CSRF: signed Admin session cannot mutate from foreign Origin.");
+        // Authorized malformed/huge upload requests must fail BEFORE
+        // reaching the stage RPC, not after allocation or with HTTP 503.
+        const oversizedStage = await context.request.post(base + "/api/admin/slips", {
+          headers: { Origin: base, Cookie: signedCookie,
+            "Content-Type": "application/json" },
+          data: Buffer.from("x".repeat(1_900_050), "utf8"),
+        });
+        assert.equal(oversizedStage.status(), 413,
+          "authenticated oversized stage request must fail before JSON parsing");
+        const invalidStageJson = await context.request.post(base + "/api/admin/slips", {
+          headers: { Origin: base, Cookie: signedCookie,
+            "Content-Type": "application/json" },
+          data: Buffer.from('{"rows":', "utf8"),
+        });
+        assert.equal(invalidStageJson.status(), 400,
+          "authenticated malformed stage JSON must be a client error");
+        const emptyStage = await context.request.post(base + "/api/admin/slips", {
+          headers: { Origin: base, Cookie: signedCookie },
+          data: { rows: [] },
+        });
+        assert.equal(emptyStage.status(), 400,
+          "small but invalid stage still follows normal batch rules");
+        assert.equal(state.rows.length, 0,
+          "oversized, malformed or empty requests must never stage records");
+        console.log("PASS bounded Admin stage JSON: oversized 413, malformed 400, invalid batch 400.");
+
 
         const pdfDocument = await PDFDocument.create();
         pdfDocument.addPage([1071, 792]);

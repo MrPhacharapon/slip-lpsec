@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { readBoundedJson, readBoundedText, RequestPayloadTooLarge } from "../src/lib/server/bounded-json.ts";
 
 const url = "https://local.invalid/api/payroll/search";
@@ -66,4 +67,18 @@ test("raw body cap also rejects forged giant Content-Length without reading payl
   await assert.rejects(readBoundedText(request("{}", {
     headers: { "Content-Length": "9999999999" },
   }), 1_000_000), RequestPayloadTooLarge);
+});
+
+test("large Admin stage raw text accepts max boundary and rejects extra byte", async () => {
+  const exact = "x".repeat(1_900_000);
+  assert.equal((await readBoundedText(request(exact), 1_900_000)).length, exact.length);
+  await assert.rejects(readBoundedText(request(exact + "x"), 1_900_000),
+    RequestPayloadTooLarge);
+});
+test("Admin stage route validates JSON and upload size before any DB RPC", () => {
+  const source = readFileSync("src/app/api/admin/slips/route.ts", "utf8");
+  assert.ok(source.indexOf("requireAdmin(req, true)") < source.indexOf("readBoundedText(req, 1_900_000)"));
+  assert.ok(source.indexOf("readBoundedText(req, 1_900_000)") < source.indexOf('payrollDb().rpc("stage_payroll_slips"'));
+  assert.match(source, /RequestPayloadTooLarge \? 413 : 400/);
+  assert.doesNotMatch(source, /await req\.text\(\)/);
 });

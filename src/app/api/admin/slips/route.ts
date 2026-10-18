@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { readBoundedText, RequestPayloadTooLarge } from "@/lib/server/bounded-json";
 import { payrollDb } from "@/lib/server/payroll-db";
 import { validateStoredSlipPdf } from "@/lib/server/slip-pdf-validation";
 import { reply, requireAdmin, validAccount, validPeriod } from "@/lib/server/route-guards";
@@ -6,12 +7,20 @@ export const dynamic = "force-dynamic";
 export async function POST(req: NextRequest) {
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
+  let rows: unknown;
   try {
-    const raw = await req.text();
-    if (raw.length > 1_900_000) return reply({ error: "ชุดอัปโหลดใหญ่เกินกำหนด" }, 413);
-    const { rows } = JSON.parse(raw);
-    if (!Array.isArray(rows) || !rows.length || rows.length > 8)
-      return reply({ error: "จำนวนสลิปไม่ถูกต้อง" }, 400);
+    // Bound received BYTES before decoding and parsing. A dishonest or
+    // absent Content-Length must not bypass the 1.9 MB upload batch limit.
+    const raw = await readBoundedText(req, 1_900_000);
+    rows = (JSON.parse(raw) as { rows?: unknown } | null)?.rows;
+  } catch (error) {
+    return reply({ error: error instanceof RequestPayloadTooLarge ?
+      "ชุดอัปโหลดใหญ่เกินกำหนด" : "ข้อมูลอัปโหลดไม่ถูกต้อง" },
+      error instanceof RequestPayloadTooLarge ? 413 : 400);
+  }
+  if (!Array.isArray(rows) || !rows.length || rows.length > 8)
+    return reply({ error: "จำนวนสลิปไม่ถูกต้อง" }, 400);
+  try {
     const first = rows[0];
     if (!validPeriod(first.month, first.year)) return reply({ error: "เดือนไม่ถูกต้อง" }, 400);
     const seen = new Set<string>();
