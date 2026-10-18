@@ -22,7 +22,7 @@ test("project documents carry all release gates and current printed-period rule"
   for (let n = 1; n <= 8; n++) assert.ok(status.includes("G" + n));
   // Verify evidence provenance rather than freezing the exact prose
   // of an older status snapshot. A pending new SHA is never a CI pass.
-  assert.match(status, /ล่าสุดที่ \\*\\*ยืนยัน CI ผ่าน\\*\\*/);
+  assert.ok(status.includes("ล่าสุดที่ **ยืนยัน CI ผ่าน**"));
   assert.match(status, /ยังไม่อ้างว่าชุด Commit ล่าสุดผ่าน CI/);
 });
 
