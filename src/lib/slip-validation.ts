@@ -219,6 +219,41 @@ export function assertSlipPagePeriod(
   }
 }
 
+/**
+ * Private-only diagnostics for a failed printed-period assertion.
+ * These Boolean indicators are NOT proof of a correct payroll period.
+ * Never print extracted PDF text, dates of birth, owners or file paths.
+ */
+export function diagnosePrintedPeriodSignals(
+  tokens: PdfToken[], pageHeight: number, layout: "single" | "double",
+  expectedMonth: string, expectedYear: string
+): Array<{ periodLabel: boolean; selectedMonth: boolean; selectedYear: boolean; recognizedPattern: boolean }> {
+  if (!Number.isFinite(pageHeight) || pageHeight <= 0 ||
+      (layout !== "single" && layout !== "double")) return [];
+  const regions = layout === "double"
+    ? [tokens.filter(t => t.y >= pageHeight / 2), tokens.filter(t => t.y < pageHeight / 2)]
+    : [tokens];
+  const months = [
+    "มกราคม","กุมภาพันธ์","มีนาคม","เมษายน","พฤษภาคม","มิถุนายน",
+    "กรกฎาคม","สิงหาคม","กันยายน","ตุลาคม","พฤศจิกายน","ธันวาคม",
+  ];
+  const label = normalizeText("ประจำเดือน");
+  const pattern = new RegExp(
+    label + "(" + months.join("|") + ")(?:ปี)?(?:พ\\.?ศ\\.?)?(25[0-9]{2})(?![0-9])",
+  );
+  return regions.map(region => {
+    const normalized = normalizeText(region.map(t => t.str).join(""))
+      .replace(/\u0000/g, "")
+      .replace(/[๐-๙]/g, d => String(d.charCodeAt(0) - 0x0e50));
+    return {
+      periodLabel: normalized.includes(label),
+      selectedMonth: months.includes(expectedMonth) && normalized.includes(normalizeText(expectedMonth)),
+      selectedYear: /^25[0-9]{2}$/.test(expectedYear) && normalized.includes(expectedYear),
+      recognizedPattern: pattern.test(normalized),
+    };
+  });
+}
+
 /** Enforce the same format throughout the uploaded payroll PDF. */
 export function assertSlipDocumentLayout(layouts: Array<"single" | "double">): void {
   if (layouts.length === 0 || layouts.length > 500 ||

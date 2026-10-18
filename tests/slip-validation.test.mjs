@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseRoster,identifyPageSlips,assertUniquePeriod,assertSlipDocumentLayout,SlipValidationError,validateSlipPageLayout,assertSlipPagePeriod} from '../src/lib/slip-validation.ts';
+import {parseRoster,identifyPageSlips,assertUniquePeriod,assertSlipDocumentLayout,SlipValidationError,validateSlipPageLayout,assertSlipPagePeriod,diagnosePrintedPeriodSignals} from '../src/lib/slip-validation.ts';
 
 const roster=parseRoster([
   ['ชื่อ-นามสกุล','ตำแหน่ง','เลขที่บัญชี','รายการรายรับ (เลขตำแหน่ง)'],
@@ -163,4 +163,34 @@ test('empty document must fail', () => {
 });
 test('unknown page layout must fail', () => {
   assert.throws(() => assertSlipDocumentLayout(['double','unknown']), SlipValidationError);
+});
+
+test('private period hints distinguish real mismatches from unparsable period text', () => {
+  const good=pageHeader('มกราคม',780);
+  const printedOtherMonth=pageHeader('กันยายน',780);
+  const printedOtherYear=[{str:'ประจำเดือนมกราคมปีพ.ศ.2568',y:780}];
+  const brokenFormat=[{str:'ประจำเดือน - มกราคม : พ.ศ.2569',y:780}];
+  const missingLabel=[{str:'มกราคม พ.ศ. 2569',y:780}];
+  assert.deepEqual(diagnosePrintedPeriodSignals(good,792,'single','มกราคม','2569'),[
+    {periodLabel:true,selectedMonth:true,selectedYear:true,recognizedPattern:true}]);
+  assert.deepEqual(diagnosePrintedPeriodSignals(printedOtherMonth,792,'single','มกราคม','2569'),[
+    {periodLabel:true,selectedMonth:false,selectedYear:true,recognizedPattern:true}]);
+  assert.deepEqual(diagnosePrintedPeriodSignals(printedOtherYear,792,'single','มกราคม','2569'),[
+    {periodLabel:true,selectedMonth:true,selectedYear:false,recognizedPattern:true}]);
+  assert.deepEqual(diagnosePrintedPeriodSignals(brokenFormat,792,'single','มกราคม','2569'),[
+    {periodLabel:true,selectedMonth:true,selectedYear:true,recognizedPattern:false}]);
+  assert.deepEqual(diagnosePrintedPeriodSignals(missingLabel,792,'single','มกราคม','2569'),[
+    {periodLabel:false,selectedMonth:true,selectedYear:true,recognizedPattern:false}]);
+  // Diagnostics must never bypass strict acceptance of a loose printed period.
+  assert.throws(()=>assertSlipPagePeriod(brokenFormat,792,'single','มกราคม','2569'),SlipValidationError);
+});
+test('private period hints are separated by PDF half and never echo tokens', () => {
+  const a=pageHeader('มกราคม',780), b=pageHeader('กันยายน',384);
+  const hints=diagnosePrintedPeriodSignals([...a,...b],792,'double','มกราคม','2569');
+  assert.equal(hints.length,2);
+  assert.equal(hints[0].selectedMonth,true);
+  assert.equal(hints[1].selectedMonth,false);
+  const serialized=JSON.stringify(hints);
+  assert.ok(!serialized.includes('ชื่อ'));
+  assert.ok(!serialized.includes('1234567890'));
 });

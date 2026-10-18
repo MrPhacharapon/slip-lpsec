@@ -17,7 +17,7 @@ import Papa from "papaparse";
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import {
   parseRoster, validateSlipPageLayout, assertSlipPagePeriod, identifyPageSlips, assertUniquePeriod,
-  assertSlipDocumentLayout,
+  assertSlipDocumentLayout, diagnosePrintedPeriodSignals,
 } from "../src/lib/slip-validation.ts";
 
 function argumentsFrom(argv) {
@@ -91,6 +91,7 @@ async function checkPdf(file, roster, expectedMonth, expectedYear) {
       // Report ONLY the operation that rejected a page. Never include the
       // underlying exception, tokens, roster, account, name or PDF metadata.
       let safeReason = "LAYOUT";
+      let periodSignals;
       try {
         stage = "PAGE_VALIDATE";
         layout = validateSlipPageLayout(tokens, width, height);
@@ -107,8 +108,12 @@ async function checkPdf(file, roster, expectedMonth, expectedYear) {
           throw Error("page layout does not match exactly one owner per region");
         }
       } catch {
+        if (safeReason === "PRINTED_PERIOD") {
+          periodSignals = diagnosePrintedPeriodSignals(
+            tokens, height, layout, expectedMonth, expectedYear);
+        }
         throw Object.assign(Error("PDF validation failed"),
-          { page: i + 1, safeReason });
+          { page: i + 1, safeReason, periodSignals });
       }
       layouts.push(layout);
       if (layout === "single") singlePages++;
@@ -177,6 +182,9 @@ async function main() {
         ...(error?.stage === "PAGE_VALIDATE" &&
           ["LAYOUT", "PRINTED_PERIOD", "OWNER_MATCH", "REGION_MATCH"].includes(error?.safeReason)
           ? { reason: error.safeReason } : {}),
+        ...(error?.safeReason === "PRINTED_PERIOD" &&
+          Array.isArray(error?.periodSignals)
+          ? { periodSignals: error.periodSignals } : {}),
       }) + "\n");
     }
   }

@@ -135,15 +135,25 @@ test("private PDF.js rejects wrong printed month/year and a B half mismatch", ()
     assert.equal(r.status, 1);
     const events = r.stdout.trim().split(/\r?\n/)
       .filter(line=>line.startsWith("{")).map(line=>JSON.parse(line));
-    assert.deepEqual(events, [
-      { document: 1, status: "FAIL", page: 1, stage: "PAGE_VALIDATE",
-        reason: "PRINTED_PERIOD" },
-      { document: 2, status: "FAIL", page: 1, stage: "PAGE_VALIDATE",
-        reason: "PRINTED_PERIOD" },
-      { document: 3, status: "FAIL", page: 1, stage: "PAGE_VALIDATE",
-        reason: "PRINTED_PERIOD" },
-      { result: "FAIL", documents: 3, failedDocuments: 3, pages: 0, slips: 0 },
-    ]);
+    assert.equal(events.length,4);
+    for (let i=0;i<3;i++) {
+      assert.equal(events[i].document,i+1);
+      assert.equal(events[i].status,"FAIL");
+      assert.equal(events[i].page,1);
+      assert.equal(events[i].stage,"PAGE_VALIDATE");
+      assert.equal(events[i].reason,"PRINTED_PERIOD");
+      assert.ok(Array.isArray(events[i].periodSignals));
+      assert.ok(events[i].periodSignals.length>=1);
+      for(const hint of events[i].periodSignals) {
+        assert.deepEqual(Object.keys(hint).sort(),
+          ["periodLabel","recognizedPattern","selectedMonth","selectedYear"].sort());
+      }
+    }
+    assert.equal(events[0].periodSignals[0].selectedMonth,false);
+    assert.equal(events[1].periodSignals[0].selectedYear,false);
+    assert.equal(events[2].periodSignals[1].selectedMonth,false);
+    assert.deepEqual(events[3],
+      { result: "FAIL", documents: 3, failedDocuments: 3, pages: 0, slips: 0 });
     for (const secret of [dir, ...people.flatMap(p=>[p.name,p.account,p.position])])
       assert.ok(!(r.stdout+r.stderr).includes(secret));
   } finally { rmSync(dir,{recursive:true,force:true}); }
