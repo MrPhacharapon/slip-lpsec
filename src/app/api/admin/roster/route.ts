@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 // @ts-expect-error - papaparse has no bundled declarations in this project
 import Papa from "papaparse";
 import { parseRoster } from "@/lib/slip-validation";
+import { readBoundedResponseText, ResponsePayloadTooLarge } from "@/lib/server/bounded-response";
 import { reply, requireAdmin } from "@/lib/server/route-guards";
 
 export const dynamic = "force-dynamic";
@@ -29,19 +30,15 @@ export async function GET(req: NextRequest) {
       cache: "no-store", signal: AbortSignal.timeout(10000),
     });
     if (!response.ok) throw new Error("sheet not readable");
-    const size = Number(response.headers.get("content-length"));
-    if (Number.isFinite(size) && size > 1_000_000) {
-      return reply({ error: "ทะเบียนบุคลากรใหญ่เกินกำหนด" }, 413);
-    }
-    const raw = await response.text();
-    if (raw.length > 1_000_000) {
-      return reply({ error: "ทะเบียนบุคลากรใหญ่เกินกำหนด" }, 413);
-    }
+    const raw = await readBoundedResponseText(response, 1_000_000);
     const roster = parseRoster(Papa.parse<string[]>(
       raw.replace(/^\uFEFF/, ""), { skipEmptyLines: true },
     ).data);
     return reply({ roster });
-  } catch {
+  } catch (error) {
+    if (error instanceof ResponsePayloadTooLarge) {
+      return reply({ error: "ทะเบียนบุคลากรใหญ่เกินกำหนด" }, 413);
+    }
     // Neither the upstream error nor the roster content may enter logs.
     return reply({ error: "อ่านทะเบียนบุคลากรไม่ได้ กรุณาตรวจสอบการตั้งค่า" }, 503);
   }

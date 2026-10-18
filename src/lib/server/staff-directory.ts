@@ -2,6 +2,7 @@
 // This preserves the legacy staff-position badge when the Sheet is reachable.
 // @ts-expect-error - papaparse has no bundled declarations in this project
 import Papa from "papaparse";
+import { readBoundedResponseText } from "./bounded-response";
 
 export async function lookupStaffDirectory(account: string):
   Promise<{ name: string; position: string } | null> {
@@ -15,8 +16,7 @@ export async function lookupStaffDirectory(account: string):
     const url = "https://docs.google.com/spreadsheets/d/" + sheetId + "/export?format=csv&gid=0";
     const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(2500) });
     if (!response.ok) return null;
-    const csv = await response.text();
-    if (csv.length > 1_000_000) return null;
+    const csv = await readBoundedResponseText(response, 1_000_000);
     const rows: string[][] = Papa.parse(csv, { skipEmptyLines: true }).data;
     const match = rows.find(row => String(row[2] ?? "").trim() === account);
     if (!match || !String(match[0] ?? "").trim()) return null;
