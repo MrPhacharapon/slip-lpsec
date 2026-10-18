@@ -3,8 +3,8 @@
 
 ## หลักฐานก่อนชุดแก้ไขล่าสุด
 - Repository: `MrPhacharapon/slip-lpsec`
-- Branch ทดสอบ: `fix/payroll-pdf-validation-no-deploy`; ล่าสุดที่ **ยืนยัน CI ผ่าน**: `07fb693549fb6727b82c7eefed1fd072fc75d718`
-- GitHub Actions: [Run #39142155515](https://github.com/MrPhacharapon/slip-lpsec/actions/runs/39142155515) — **SUCCESS สำหรับ SHA เดิม**; Unit 122/122, PDF.js สมมติ 5/5, TypeScript, ESLint, Build และ Browser Mock E2E ผ่าน
+- Branch ทดสอบ: `fix/payroll-pdf-validation-no-deploy`; ล่าสุดที่ **ยืนยัน CI ผ่าน**: `e86f66c8c79a3f93932b2b1c312afdce1bb268ab`
+- GitHub Actions: [Run #39143242305](https://github.com/MrPhacharapon/slip-lpsec/actions/runs/39143242305) — **SUCCESS สำหรับ SHA เดิม**; Unit 127/127, PDF.js สมมติ 5/5, TypeScript, ESLint, Build และ Browser Mock E2E ผ่าน
 - Production Main: `fdced74510f57ab83a758642f2edba08dad0b316`; Vercel Production READY ที่ Commit เดิม ไม่ได้ Deploy จาก Branch นี้
 - Supabase Test: `slips=0`, `upload_history=0`, `storage.objects=0`, `rate_limits=0`; bucket slips เป็น Private
 - Supabase Production: `slips=338`, `upload_history=9`, `storage.objects=12`; RLS ปิด 2 ตารางและ Storage slips เป็น Public
@@ -12,7 +12,7 @@
 - ข้อมูลนี้อ่านเฉพาะจำนวนและสถานะ ไม่เรียก PDF จริง รายชื่อ เลขบัญชีหรือ Key
 
 ## งานที่ตรวจรับและ Draft PR
-- Draft Pull Request: [#1](https://github.com/MrPhacharapon/slip-lpsec/pull/1), Head `07fb693549fb6727b82c7eefed1fd072fc75d718`, Base `fdced74510f57ab83a758642f2edba08dad0b316`
+- Draft Pull Request: [#1](https://github.com/MrPhacharapon/slip-lpsec/pull/1), Head `e86f66c8c79a3f93932b2b1c312afdce1bb268ab`, Base `fdced74510f57ab83a758642f2edba08dad0b316`
 - Source features ผ่าน Synthetic Unit 112/112, PDF.js 5/5, Browser E2E, TypeScript, ESLint, Build และ Aggregate `validate` ตาม CI ที่อ้างอิงด้านบน
 - SQL Metadata Read-only เทียบ Supabase Test/Production: Test `schema_ready=true`; Production `schema_ready=false`. Production ขาด RPC 8 รายการ, คอลัมน์ 4 รายการ (รวมตาราง rate limits ที่ยังไม่มี), Unique Index 2 รายการ, ยังมี Public Grants, RLS ปิด และ Public Storage
 - ไฟล์ PDF ต้นฉบับบางเดือนมีรายการใน Library แต่ **ไม่ได้รับ raw bytes เพื่อรัน PDF.js ในพื้นที่ที่อนุญาต** จึงไม่สามารถถือว่า G3 ผ่าน
@@ -27,12 +27,15 @@
 - ชุดแก้ไขปัจจุบันเพิ่ม Shared Bounded Admin JSON Parser ให้ API ที่เหลือ 8 จุด (Preflight, Finalize, History, Recovery, Published Deletion, LINE) จำกัดขนาด **ระหว่างอ่าน** และแยก HTTP 400/413 ก่อนเรียกฐานข้อมูล โดยคง Session, Origin, Snapshot และ Atomic RPC เดิม
 - CI SHA `d78f1c7` มีความล้มเหลวใน Unit Test Loader (Node native strip-types โหลด extensionless import ที่อยู่ภายใน Next.js route wrapper ไม่ได้); Browser E2E รันใน Next.js จริง ไม่ใช่หลักฐานว่า SHA นี้ผ่าน Quality
 - ชุดแก้ไขถัดไปทดสอบ Streaming parser โดยตรงผ่าน Node และทดสอบ HTTP wrapper ผ่าน Browser E2E ที่รันกับ Next.js จริง; เพิ่มกรณี JSON null สำหรับครบทั้ง 8 handlers และปรับ Structural Tests ให้ตรวจลำดับ Session ก่อนอ่าน Request
-- **Commit แก้ไขยังไม่ถือว่าผ่าน CI** จนกว่าทั้ง Quality, Sandbox และ `validate` จะผ่าน SHA เดียวกัน
+- Commit `e86f66c` ผ่าน Quality, Sandbox และ `validate` ครบ 127/127 Unit Tests และ 5/5 PDF.js Synthetic Tests; 8 Admin JSON handlers ผ่าน Browser E2E
+- ตรวจโครงสร้าง Test/Production จริงแบบอ่านอย่างเดียว: **legacy_columns_compatible=true** ทั้งสองฐาน, ไม่มี Trigger/FK พิเศษและไม่มี Business Key ซ้ำ; Production ยัง RLS ปิด, Anonymous Grants เปิด, Storage Public. รวมทั้งสิ้น 12 Storage files ซึ่ง 3 ไฟล์ยังไม่มี History อ้างอิง
+- ชุดปัจจุบันเพิ่ม `docs/payroll-legacy-schema-compatibility-readonly.sql` สำหรับ Audit ซ้ำก่อน/หลัง Cutover; การตรวจนี้ **ไม่ใช่ Backup/Restore** และไม่ผ่าน Gate G4/G6 ด้วยตัวเอง
+- **Commit ใหม่ยังไม่ถือว่าผ่าน CI** จนกว่าทั้ง Quality, Sandbox และ `validate` จะผ่าน SHA เดียวกัน
 
 ## Release Gates — NO-GO
 | Gate | สถานะและเงื่อนไขที่ขาด |
 |---|---|
-| G1: Exact SHA CI | 07fb693 ผ่าน; ชุดแก้ไข Admin Small JSON ใหม่ต้องตรวจ CI ตาม SHA |
+| G1: Exact SHA CI | e86f66c ผ่าน; ชุดเพิ่ม SQL Audit/เอกสารล่าสุดต้องตรวจ CI ตาม SHA ใหม่ |
 | G2: Next.js → Supabase Test จริง | **NO-GO**; ต้องทดสอบด้วย Test-only Service-role Key ในพื้นที่ส่วนตัว |
 | G3: PDF จริงทุกเดือน | **NO-GO**; ต้องใช้ PDF.js และทะเบียนจริงบนเครื่องผู้มีสิทธิ์ |
 | G4: Backup และ Restore DB + Storage จริง | **NO-GO**; ตรวจสำเนา Hash อย่างเดียวยังไม่เพียงพอ |

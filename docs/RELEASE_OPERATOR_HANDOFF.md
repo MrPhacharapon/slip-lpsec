@@ -40,6 +40,12 @@ The comparison used `docs/payroll-test-readiness-readonly.sql` and
 Schema readiness on Test **does not** mean full-stack authenticated Next.js →
 Supabase Test integration has run.
 
+## 2A. Additional read-only compatibility evidence (18 October 2026)
+
+Run `docs/payroll-legacy-schema-compatibility-readonly.sql` on **both** Supabase Test and Production. Tested values: `legacy_columns_compatible=true`, `both_base_tables_present=true`, `custom_trigger_count=0`, `foreign_key_count=0`, `duplicate_slip_groups=0`, `duplicate_history_groups=0` in both environments. This eliminates some basic schema-drift concerns, **not** migration or restore risk.
+
+Only Test has `payroll_tables_rls_enabled=true`, `anonymous_table_access_revoked=true`, `storage_bucket_private=true`. Production has all three **false**. Production Storage totals: 12 objects, 9 matched by upload history, 3 unreferenced; no history rows point to missing objects. Metadata cannot show whether the unreferenced PDFs are duplicates or disposable. Retain all files and verify private backup/restore before any cutover.
+
 ## 3. Migration sequence — planning ONLY
 
 1. **Precondition:** verified private, restorable database and complete Storage backup; check all 12 files and three unclassified objects. Freeze new writes in a coordinated maintenance window. Keep an independent safety copy.
