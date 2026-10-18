@@ -1,4 +1,5 @@
 import test from "node:test";
+import { createHmac } from "node:crypto";
 import assert from "node:assert/strict";
 import { verifyLineWebhookSignature } from "../src/lib/server/line-signature.ts";
 
@@ -19,4 +20,12 @@ test("changed payload and missing or forged signatures are rejected", () => {
 test("webhook must have a valid length and encoding", () => {
   assert.equal(verifyLineWebhookSignature(body, "!".repeat(140), sampleSecret), false);
   assert.equal(verifyLineWebhookSignature("A".repeat(1_000_001), exampleSignature, sampleSecret), false);
+});
+
+test("malformed JSON can be correctly signed, allowing separate 400 handling", () => {
+  const raw = '{"events":';
+  const secret = "SYNTHETIC_ONLY_LINE_WEBHOOK_KEY_NOT_REAL";
+  const hmac = createHmac("sha256", secret).update(Buffer.from(raw, "utf8")).digest("base64");
+  assert.equal(verifyLineWebhookSignature(raw, hmac, secret), true);
+  assert.throws(() => JSON.parse(raw), SyntaxError);
 });

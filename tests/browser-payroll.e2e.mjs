@@ -405,7 +405,9 @@ async function main() {
         const malformed = await client.request.post(base + "/api/line-webhook", {
           headers: { "X-Line-Signature": invalidSignature,
             "Content-Type": "application/json" },
-          data: invalidJson,
+          // Force the literal signed bytes; a JSON helper may stringify an
+          // already-invalid JSON string and invalidate its HMAC instead.
+          data: Buffer.from(invalidJson, "utf8"),
         });
         assert.equal(malformed.status(), 400,
           "signed malformed JSON should be client error, not server failure");

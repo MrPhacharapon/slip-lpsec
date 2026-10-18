@@ -11,7 +11,7 @@ export class RequestPayloadTooLarge extends Error {
   }
 }
 
-export async function readBoundedJson(request: Request, maxBytes: number): Promise<unknown> {
+export async function readBoundedText(request: Request, maxBytes: number): Promise<string> {
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1)
     throw new RangeError("Invalid server-side request size limit");
 
@@ -46,5 +46,10 @@ export async function readBoundedJson(request: Request, maxBytes: number): Promi
     data.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(data));
+  return new TextDecoder("utf-8", { fatal: true }).decode(data);
+}
+
+/** Keep JSON parsing AFTER strict streaming and UTF-8 validation. */
+export async function readBoundedJson(request: Request, maxBytes: number): Promise<unknown> {
+  return JSON.parse(await readBoundedText(request, maxBytes));
 }

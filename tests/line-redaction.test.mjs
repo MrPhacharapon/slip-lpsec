@@ -14,6 +14,8 @@ test("LINE notification errors never echo untrusted upstream response bodies", (
 test("LINE webhook never logs an untrusted error object or raw body", () => {
   const source = readFileSync("src/app/api/line-webhook/route.ts", "utf8");
   assert.match(source, /verifyLineWebhookSignature\(rawBody/);
+  assert.match(source, /readBoundedText\(req, 1_000_000\)/);
+  assert.match(source, /RequestPayloadTooLarge/);
   assert.match(source, /LINE webhook processing failed/);
   assert.match(source, /collectLineGroupReplies\(body\.events\)/);
   assert.match(source, /Promise\.allSettled/);

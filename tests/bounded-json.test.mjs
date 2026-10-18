@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readBoundedJson, RequestPayloadTooLarge } from "../src/lib/server/bounded-json.ts";
+import { readBoundedJson, readBoundedText, RequestPayloadTooLarge } from "../src/lib/server/bounded-json.ts";
 
 const url = "https://local.invalid/api/payroll/search";
 function request(payload, extra = {}) {
@@ -53,4 +53,17 @@ test("malformed, missing and invalid UTF-8 JSON cannot reach application handler
 test("invalid policy cap fails safely rather than silently disabling limits", async () => {
   for (const limit of [0, -1, Infinity, NaN, 0.5])
     await assert.rejects(readBoundedJson(request("{}"), limit), RangeError);
+});
+
+test("signed-webhook raw text reader preserves exact UTF-8 payload below byte cap", async () => {
+  const raw = '{"events":[{"type":"message","text":"สวัสดี"}]}';
+  const bytes = Buffer.byteLength(raw);
+  assert.equal(await readBoundedText(request(raw), bytes), raw);
+  await assert.rejects(readBoundedText(request(raw), bytes - 1), RequestPayloadTooLarge);
+});
+
+test("raw body cap also rejects forged giant Content-Length without reading payload", async () => {
+  await assert.rejects(readBoundedText(request("{}", {
+    headers: { "Content-Length": "9999999999" },
+  }), 1_000_000), RequestPayloadTooLarge);
 });

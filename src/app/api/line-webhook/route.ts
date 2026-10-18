@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readBoundedText, RequestPayloadTooLarge } from "@/lib/server/bounded-json";
 import { verifyLineWebhookSignature } from "@/lib/server/line-signature";
 import { collectLineGroupReplies } from "@/lib/server/line-webhook-events";
 
@@ -6,7 +7,17 @@ export async function POST(req: Request) {
   try {
     // LINE signs the exact raw body, not parsed JSON. Never process an event
     // until its original webhook signature has been verified.
-    const rawBody = await req.text();
+    let rawBody: string;
+    try {
+      // Enforce an actual BYTE limit before signature verification or JSON
+      // parsing, including chunked requests and dishonest Content-Length.
+      rawBody = await readBoundedText(req, 1_000_000);
+    } catch (error) {
+      if (error instanceof RequestPayloadTooLarge) {
+        return NextResponse.json({ error: "Webhook body too large" }, { status: 413 });
+      }
+      return NextResponse.json({ error: "Invalid webhook body" }, { status: 400 });
+    }
     if (!verifyLineWebhookSignature(rawBody, req.headers.get("x-line-signature"))) {
       return NextResponse.json({ error: "Invalid webhook signature" }, { status: 401 });
     }

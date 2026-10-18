@@ -13,7 +13,8 @@
 
 ## สิ่งที่ทำแล้วและงานที่กำลังตรวจ
 - Commit `87ccce2` ผ่าน Quality, Browser E2E และ Aggregate `validate` จริง; เพิ่มขนาดคำขอสูงสุด 1,024 ไบต์ใน Public Search/PDF API
-- ชุดปรับปรุงปัจจุบัน: ประมวลผล LINE Webhook แบบหลาย Events ตามเอกสาร LINE แทนอ่านเฉพาะ Events[0], ตรวจลายเซ็นก่อนแยกเหตุการณ์, ตรวจ replyToken ซ้ำภายใน Batch และส่ง Reply อย่างมีขีดจำกัด Concurrency ไม่แสดงข้อมูล LINE/Provider ใน Logs
+- ชุดปรับปรุงปัจจุบัน: ประมวลผล LINE Webhook แบบหลาย Events ตามเอกสาร LINE แทนอ่านเฉพาะ Events[0], ตรวจลายเซ็นก่อนแยกเหตุการณ์, ตรวจ replyToken ซ้ำภายใน Batch และส่ง Reply อย่างมีขีดจำกัด Concurrency; เพิ่ม Raw Body Streaming Cap 1,000,000 ไบต์ก่อน HMAC เพื่อป้องกันคำขอขนาดใหญ่
+- CI ของ SHA `00cda6c` พบ Browser E2E ผิดผลคาด: ตัวทดสอบส่ง JSON ที่ตั้งใจให้ผิดรูปแบบจน HMAC ที่ได้รับไม่ตรง; ชุดแก้ไขปัจจุบันส่งไบต์ตรงกับข้อมูลที่ลงลายเซ็นและเพิ่ม Unit Test เฉพาะกรณีนี้ ห้ามนับ SHA ที่ล้มเหลวว่า PASS
 - **ยังไม่อ้างว่าชุด Commit ล่าสุดผ่าน CI** จนกว่าจะมีผลของ SHA ใหม่ตรงกันทั้งสอง Jobs และ Aggregate Gate
 
 ## Release Gates — NO-GO
