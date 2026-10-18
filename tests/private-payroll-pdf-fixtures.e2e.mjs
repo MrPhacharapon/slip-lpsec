@@ -80,7 +80,8 @@ test("private PDF.js rejects incorrect position in synthetic PDF at page 1", () 
     const lines = result.stdout.trim().split(/\r?\n/).filter(l => l.startsWith("{"))
       .map(l => JSON.parse(l));
     assert.deepEqual(lines, [
-      { document: 1, status: "FAIL", page: 1, stage: "PAGE_VALIDATE" },
+      { document: 1, status: "FAIL", page: 1, stage: "PAGE_VALIDATE",
+        reason: "OWNER_MATCH" },
       { result: "FAIL", documents: 1, failedDocuments: 1, pages: 0, slips: 0 },
     ]);
     assert.ok(!result.stdout.includes("1234567890"));
@@ -135,9 +136,12 @@ test("private PDF.js rejects wrong printed month/year and a B half mismatch", ()
     const events = r.stdout.trim().split(/\r?\n/)
       .filter(line=>line.startsWith("{")).map(line=>JSON.parse(line));
     assert.deepEqual(events, [
-      { document: 1, status: "FAIL", page: 1, stage: "PAGE_VALIDATE" },
-      { document: 2, status: "FAIL", page: 1, stage: "PAGE_VALIDATE" },
-      { document: 3, status: "FAIL", page: 1, stage: "PAGE_VALIDATE" },
+      { document: 1, status: "FAIL", page: 1, stage: "PAGE_VALIDATE",
+        reason: "PRINTED_PERIOD" },
+      { document: 2, status: "FAIL", page: 1, stage: "PAGE_VALIDATE",
+        reason: "PRINTED_PERIOD" },
+      { document: 3, status: "FAIL", page: 1, stage: "PAGE_VALIDATE",
+        reason: "PRINTED_PERIOD" },
       { result: "FAIL", documents: 3, failedDocuments: 3, pages: 0, slips: 0 },
     ]);
     for (const secret of [dir, ...people.flatMap(p=>[p.name,p.account,p.position])])
@@ -156,4 +160,27 @@ test("private PDF.js supports individually declared months across multiple files
     assert.equal(r.status,0,r.stdout);
     assert.ok(JSON.parse(r.stdout.trim().split(/\r?\n/).at(-1)).result==="PASS");
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+
+test("private PDF.js reports a redacted layout reason for unsupported PDF paper size", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "payroll-fictional-layout-"));
+  try {
+    const path = join(dir, "fictional-wrong-size.pdf");
+    const document = await PDFDocument.load(fixture("A", [people[0]]));
+    document.getPage(0).setSize(612, 792);
+    writeFileSync(path, Buffer.from(await document.save()));
+    const result = checkCli(dir, [path]);
+    assert.equal(result.status, 1, result.stdout);
+    const events = result.stdout.split(/\r?\n/).filter(x => x.startsWith("{"))
+      .map(x => JSON.parse(x));
+    assert.deepEqual(events, [
+      { document: 1, status: "FAIL", page: 1, stage: "PAGE_VALIDATE",
+        reason: "LAYOUT" },
+      { result: "FAIL", documents: 1, failedDocuments: 1, pages: 0, slips: 0 },
+    ]);
+    const visible = result.stdout + result.stderr;
+    for (const secret of [dir, ...people.flatMap(p=>[p.name,p.account,p.position])])
+      assert.ok(!visible.includes(secret), "must redact private fields");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

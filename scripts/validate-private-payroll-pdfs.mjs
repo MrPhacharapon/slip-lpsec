@@ -88,11 +88,17 @@ async function checkPdf(file, roster, expectedMonth, expectedYear) {
       const width = page.view[2] - page.view[0];
       const height = page.view[3] - page.view[1];
       let layout, matches;
+      // Report ONLY the operation that rejected a page. Never include the
+      // underlying exception, tokens, roster, account, name or PDF metadata.
+      let safeReason = "LAYOUT";
       try {
         stage = "PAGE_VALIDATE";
         layout = validateSlipPageLayout(tokens, width, height);
+        safeReason = "PRINTED_PERIOD";
         assertSlipPagePeriod(tokens, height, layout, expectedMonth, expectedYear);
+        safeReason = "OWNER_MATCH";
         matches = identifyPageSlips(tokens, height, roster);
+        safeReason = "REGION_MATCH";
         if ((layout === "single" &&
              (matches.length !== 1 || matches[0].region !== "full")) ||
             (layout === "double" &&
@@ -101,8 +107,8 @@ async function checkPdf(file, roster, expectedMonth, expectedYear) {
           throw Error("page layout does not match exactly one owner per region");
         }
       } catch {
-        throw Object.assign(Error("PDF text/layout/ownership validation failed"),
-          { page: i + 1 });
+        throw Object.assign(Error("PDF validation failed"),
+          { page: i + 1, safeReason });
       }
       layouts.push(layout);
       if (layout === "single") singlePages++;
@@ -168,6 +174,9 @@ async function main() {
         page: Number.isInteger(error?.page) ? error.page : null,
         stage: ["FILE_READ", "DOCUMENT_LOAD", "PAGE_READ", "PAGE_VALIDATE",
           "PERIOD_VALIDATE"].includes(error?.stage) ? error.stage : "UNKNOWN",
+        ...(error?.stage === "PAGE_VALIDATE" &&
+          ["LAYOUT", "PRINTED_PERIOD", "OWNER_MATCH", "REGION_MATCH"].includes(error?.safeReason)
+          ? { reason: error.safeReason } : {}),
       }) + "\n");
     }
   }
