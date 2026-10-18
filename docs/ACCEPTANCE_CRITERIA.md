@@ -5,6 +5,7 @@
 |---|---|---|
 | ค้นหาโดยครู | บัญชี 10 หลัก, เห็นเฉพาะเดือน Publish และ PDF ของบัญชีที่ค้นหา | ไม่มี OTP, ไม่พบต้องไม่รั่วข้อมูล, จำกัดคำขอและ Fail Closed |
 | ขนาด Public JSON | Search และ PDF รับ Request JSON ไม่เกิน 1,024 ไบต์, อ่านแบบ Streaming และตรวจ Content-Length | Body เกินขนาด/Chunked เกินขนาดตอบ 413; JSON ผิด/UTF-8 ไม่ถูกต้องตอบ 400 โดยไม่แตะ DB |
+| Admin Login JSON | ตรวจ Rate Limit และ Same-Origin ก่อนอ่าน Request JSON; จำกัด 2,048 ไบต์ขณะ Stream | Body เกินเพดานตอบ 413, JSON ผิดตอบ 400, รหัสผ่านผิดตอบ 401, อัตราคำขอเกินตอบ 429 |
 | Admin | Password, Session Cookie ลงลายเซ็น, Origin Validation | ไม่ล็อกอิน, ข้าม Origin, รหัสผิดจำนวนมากต้องถูกปฏิเสธ |
 | ทะเบียน | CSV ส่วนตัวในเบราว์เซอร์หรือทะเบียนผ่าน Admin API; จับคู่ 3 ฟิลด์ | ชื่อผิด, บัญชีผิด, เลขตำแหน่งผิด, บัญชีซ้ำ, CSV ต้นฉบับไม่ขึ้น Server |
 | ทะเบียนจาก Google Sheets | จำกัด CSV Response ที่ 1,000,000 ไบต์ระหว่างอ่าน Stream ทั้ง Admin และ Staff Directory | Content-Length เกินขนาด, Stream เกินขนาด, ข้อมูล UTF-8 ผิดและ Response ไม่มี Body ต้องไม่ถูกแปลงเป็นทะเบียน; ไม่บันทึกข้อมูลจริงลง Logs |

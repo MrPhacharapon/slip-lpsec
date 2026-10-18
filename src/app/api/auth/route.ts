@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readBoundedJson, RequestPayloadTooLarge } from "@/lib/server/bounded-json";
 import { ADMIN_COOKIE, adminCookieOptions, createAdminSession, sameOrigin, verifyAdminPassword, verifyAdminSession } from "@/lib/server/admin-session";
 import { requirePayrollRateLimit } from "@/lib/server/payroll-rate-limit";
 
@@ -16,9 +17,15 @@ export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return noStore({ success: false, error: "คำขอไม่ถูกต้อง" }, 403);
   const limited = await requirePayrollRateLimit(request, "admin_login");
   if (limited) return limited;
+  let password: unknown;
   try {
-    const body = await request.json();
-    if (!verifyAdminPassword(body?.password)) {
+    password = (await readBoundedJson(request, 2048) as { password?: unknown } | null)?.password;
+  } catch (error) {
+    return noStore({ success: false, error: "คำขอมีขนาดใหญ่เกินกำหนดหรือรูปแบบไม่ถูกต้อง" },
+      error instanceof RequestPayloadTooLarge ? 413 : 400);
+  }
+  try {
+    if (!verifyAdminPassword(password)) {
       return noStore({ success: false, error: "รหัสผ่านไม่ถูกต้อง" }, 401);
     }
     const result = noStore({ success: true });

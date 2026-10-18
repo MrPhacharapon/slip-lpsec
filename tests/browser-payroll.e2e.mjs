@@ -489,6 +489,28 @@ async function main() {
         console.log("PASS anonymous direct PDF access rate limiting: 429 after account quota.");
       } finally { await visitor.close(); }
     }
+    // Anonymous Admin login also bounds JSON before parsing and comparing passwords.
+    {
+      setMockState({ rows: [], history: [] });
+      const visitor = await browser.newContext();
+      try {
+        const huge = await visitor.request.post(base + "/api/auth", {
+          headers: { Origin: base },
+          data: { password: "SYNTHETIC_TOO_LARGE_" + "x".repeat(2100) },
+        });
+        assert.equal(huge.status(), 413, "oversized Admin JSON must be denied");
+        const broken = await visitor.request.post(base + "/api/auth", {
+          headers: { Origin: base, "Content-Type": "application/json" },
+          data: Buffer.from('{"password":', "utf8"),
+        });
+        assert.equal(broken.status(), 400, "malformed signed-origin login is client error");
+        const wrong = await visitor.request.post(base + "/api/auth", {
+          headers: { Origin: base }, data: { password: "wrong-synthetic-password" },
+        });
+        assert.equal(wrong.status(), 401, "valid-size wrong password still denied");
+        console.log("PASS bounded Admin login JSON: oversized 413, malformed 400, wrong password 401.");
+      } finally { await visitor.close(); }
+    }
     // Wrong admin password attempts are throttled even with a valid Origin.
     {
       setMockState({ rows: [], history: [] });
