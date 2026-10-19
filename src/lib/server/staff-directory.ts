@@ -4,6 +4,7 @@
 import Papa from "papaparse";
 import { readBoundedResponseText } from "./bounded-response";
 import { serverSheetRosterEnabled } from "./roster-config";
+import { rosterDisplayForAccount } from "@/lib/slip-validation";
 
 export async function lookupStaffDirectory(account: string):
   Promise<{ name: string; position: string } | null> {
@@ -18,8 +19,8 @@ export async function lookupStaffDirectory(account: string):
     if (!response.ok) return null;
     const csv = await readBoundedResponseText(response, 1_000_000);
     const rows: string[][] = Papa.parse(csv, { skipEmptyLines: true }).data;
-    const match = rows.find(row => String(row[2] ?? "").trim() === account);
-    if (!match || !String(match[0] ?? "").trim()) return null;
-    return { name: String(match[0]).trim(), position: String(match[1] ?? "").trim() };
+    // Hyphenated/space-separated accounts are legal in the Admin parser.
+    // A duplicate or malformed position number must never be guessed.
+    return rosterDisplayForAccount(rows, account);
   } catch { return null; }
 }

@@ -19,6 +19,23 @@ const normalizeText = (text: string): string =>
 const stripAccountSeparators = (text: string): string =>
   text.replace(/[\s\-\u200B-\u200D\uFEFF]/g, "");
 
+/** Staff view uses the same account normalization as Admin roster validation.
+ * Never pick the first row if a Sheet unexpectedly contains duplicate accounts. */
+export function rosterDisplayForAccount(
+  rows: string[][], account: string,
+): { name: string; position: string } | null {
+  if (!/^\d{10}$/.test(account)) return null;
+  const matches = rows.filter(row =>
+    stripAccountSeparators(String(row[2] ?? "").trim()) === account);
+  if (matches.length !== 1) return null;
+  const row = matches[0];
+  const name = String(row[0] ?? "").trim();
+  const position = String(row[1] ?? "").trim();
+  const positionNumber = String(row[3] ?? "").trim();
+  if (!name || !/^\d{7}$/.test(positionNumber)) return null;
+  return { name, position };
+}
+
 export function parseRoster(rows: string[][]): RosterPerson[] {
   const persons: RosterPerson[] = [];
   const seen = new Set<string>();

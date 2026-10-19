@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseRoster,identifyPageSlips,assertUniquePeriod,assertSlipDocumentLayout,SlipValidationError,validateSlipPageLayout,assertSlipPagePeriod,diagnosePrintedPeriodSignals} from '../src/lib/slip-validation.ts';
+import {parseRoster,rosterDisplayForAccount,identifyPageSlips,assertUniquePeriod,assertSlipDocumentLayout,SlipValidationError,validateSlipPageLayout,assertSlipPagePeriod,diagnosePrintedPeriodSignals} from '../src/lib/slip-validation.ts';
 
 const roster=parseRoster([
   ['ชื่อ-นามสกุล','ตำแหน่ง','เลขที่บัญชี','รายการรายรับ (เลขตำแหน่ง)'],
@@ -235,4 +235,25 @@ test('reordered heading is verified separately for both halves of compact page',
   assert.doesNotThrow(()=>assertSlipPagePeriod([...top,...bottom],792,'double','กันยายน','2569'));
   const invalid=[...top,{...bottom[0],str:'ตุลาคม ปี พ.ศ. 2569'},bottom[1]];
   assert.throws(()=>assertSlipPagePeriod(invalid,792,'double','กันยายน','2569'),SlipValidationError);
+});
+
+test('staff position lookup normalizes hyphenated and whitespace-separated Sheet bank accounts', () => {
+  const rows = [
+    ['ชื่อ-นามสกุล','ตำแหน่ง','เลขบัญชี','เลขตำแหน่ง'],
+    ['นายสมมติ หนึ่ง','ครู',' 012-345-6789 ','0000001'],
+    ['นางสาวสมมติ สอง','นักวิชาการ','987 654 3210','0000002'],
+  ];
+  assert.deepEqual(rosterDisplayForAccount(rows, '0123456789'),
+    { name: 'นายสมมติ หนึ่ง', position: 'ครู' });
+  assert.deepEqual(rosterDisplayForAccount(rows, '9876543210'),
+    { name: 'นางสาวสมมติ สอง', position: 'นักวิชาการ' });
+  assert.equal(rosterDisplayForAccount(rows, '123456789'), null);
+  assert.equal(rosterDisplayForAccount(rows, '0000000000'), null);
+});
+test('staff position lookup refuses duplicate account, incomplete row or invalid position number', () => {
+  const valid = ['สมมติ หนึ่ง','ครู','123-456-7890','0000001'];
+  assert.equal(rosterDisplayForAccount([valid, ['สมมติ สอง','ครู','1234567890','0000002']], '1234567890'), null);
+  assert.equal(rosterDisplayForAccount([['','ครู','1234567890','0000001']], '1234567890'), null);
+  assert.equal(rosterDisplayForAccount([['สมมติ หนึ่ง','ครู','1234567890','']], '1234567890'), null);
+  assert.equal(rosterDisplayForAccount([valid], '1234567890')?.name, 'สมมติ หนึ่ง');
 });
