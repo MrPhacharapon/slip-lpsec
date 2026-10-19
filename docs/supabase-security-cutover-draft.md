@@ -1,5 +1,35 @@
 # ร่างแผนป้องกันข้อมูลสลิปเงินเดือน — ไม่ได้ดำเนินการกับ Production
 
+## IMPORTANT — 19 October 2026 authoritative corrections
+
+This draft contains older planning text below. The following later operator
+decisions/evidence **supersede any conflicting statement below**:
+
+- Production `ADMIN_PASSWORD` was cancelled. The operator keeps the existing
+  three-character Admin PIN. The secured branch reads it server-side from the
+  same Google Sheet `Settings` tab through the read-only Service Account.
+  Production login is throttled to 3 attempts per IP and 10 attempts globally
+  per 10 minutes; this reduces guessing but is not MFA/high-assurance auth.
+- Seven new Production server-only keys are already present in Vercel as
+  Sensitive values. Their values have not been decrypted during review.
+- Google Sheets API + Viewer Service Account are configured and the operator's
+  private local OAuth/tab-metadata test returned PASS. The public Sheet sharing
+  remains temporarily because legacy Main still depends on it.
+- G4 database/PDF backup tasks were explicitly waived by the operator. Do not
+  reintroduce them as a prerequisite. The waiver does not authorize Production
+  writes or destructive rollback.
+- The consolidated Production security candidate is
+  `docs/payroll-production-security-migration-candidate.sql`. It performs no
+  automatic deletion of payroll rows or Storage objects. It was applied
+  successfully on Supabase Test, followed by a successful exact 8-RPC rollback
+  rehearsal. Production remains unchanged and requires explicit G6 approval.
+- Latest Production read-only preflight: 338 slips; max 38 in a period; zero
+  duplicate owner-period/history groups, invalid accounts/names/months/years,
+  staged periods, or history-without-slips. Production still has RLS OFF,
+  broad anon/authenticated grants, public `slips` Storage and four public
+  Storage policies.
+
+
 **สถานะ:** พัฒนาเฉพาะ Branch `fix/payroll-pdf-validation-no-deploy`; ยังไม่ได้ Merge, Deploy หรือใช้คำสั่ง SQL นี้จริง
 
 ## วัตถุประสงค์และขอบเขตที่ผู้ใช้อนุมัติ
