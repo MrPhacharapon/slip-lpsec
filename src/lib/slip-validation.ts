@@ -202,7 +202,8 @@ function printedPeriodHeader(region: PdfToken[]): string {
       .replace(/\u0000/g, "")
       .replace(/[๐-๙]/g, d => String(d.charCodeAt(0) - 0x0e50));
   const original = cleaned(region);
-  if ((original.match(/ประจำเดือน/g) ?? []).length !== 1) {
+  const normalizedLabel = normalizeText("ประจำเดือน");
+  if (original.split(normalizedLabel).length - 1 !== 1) {
     throw new SlipValidationError("พบหัวเดือนในสลิปไม่ครบหรือซ้ำกัน");
   }
   const withX = region.filter(t => Number.isFinite(t.x));
@@ -210,7 +211,7 @@ function printedPeriodHeader(region: PdfToken[]): string {
   if (withX.length !== region.length) {
     throw new SlipValidationError("ตำแหน่งข้อความหัวเอกสารไม่ครบ");
   }
-  const labelTokens = region.filter(t => normalizeText(t.str).includes("ประจำเดือน"));
+  const labelTokens = region.filter(t => normalizeText(t.str).includes(normalizedLabel));
   if (labelTokens.length !== 1) {
     throw new SlipValidationError("ไม่สามารถระบุตำแหน่งหัวเดือนอย่างปลอดภัย");
   }
