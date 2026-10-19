@@ -775,11 +775,11 @@ async function main() {
           });
           return response.status;
         });
-        assert.equal(status, 409,
-          "Admin must not announce a period without a committed publication");
+        assert.equal(status, 503,
+          "isolated non-production must stop before reading payroll or contacting LINE");
         assert.equal(state.history.length, 0);
         await page.close();
-        console.log("PASS LINE API: unpublished periods cannot be announced.");
+        console.log("PASS LINE API: non-production cannot announce payroll.");
       } finally { await context.close(); }
     }
 

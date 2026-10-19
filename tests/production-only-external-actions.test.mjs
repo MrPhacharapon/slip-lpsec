@@ -15,8 +15,13 @@ for (const path of [
       const admin = code.indexOf("requireAdmin(req, true)");
       assert.ok(admin >= 0 && admin < gate,
         "public callers must retain the existing 401 admin denial");
-      assert.ok(gate < code.indexOf("payrollDb()"));
-      assert.ok(gate < code.indexOf("LINE_CHANNEL_ACCESS_TOKEN"));
+      const db = code.indexOf("payrollDb()");
+      const token = code.indexOf("LINE_CHANNEL_ACCESS_TOKEN");
+      const provider = code.indexOf("https://api.line.me/v2/bot/message/push");
+      const unpublished = code.indexOf("Payroll period is not published");
+      assert.ok(gate < db, "non-production must stop before payroll DB access");
+      assert.ok(db >= 0 && db < unpublished && unpublished < token && token < provider,
+        "production path must verify committed publication before LINE credentials/network");
     } else if (path.includes("line-webhook")) {
       const bounded = code.indexOf("readBoundedText(req");
       const signature = code.indexOf("verifyLineWebhookSignature(rawBody");
