@@ -12,7 +12,10 @@ for (const path of [
     const gate = code.indexOf('process.env.PAYROLL_RELEASE_TARGET !== "production"');
     assert.ok(gate >= 0, "missing production release gate");
     if (path.includes("send-line")) {
-      assert.ok(gate < code.indexOf("requireAdmin(req, true)"));
+      const admin = code.indexOf("requireAdmin(req, true)");
+      assert.ok(admin >= 0 && admin < gate,
+        "public callers must retain the existing 401 admin denial");
+      assert.ok(gate < code.indexOf("payrollDb()"));
       assert.ok(gate < code.indexOf("LINE_CHANNEL_ACCESS_TOKEN"));
     } else if (path.includes("line-webhook")) {
       assert.ok(gate < code.indexOf("readBoundedText(req"));
