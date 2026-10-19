@@ -4,6 +4,8 @@ import { requireAdmin, validPeriod } from "@/lib/server/route-guards";
 import { payrollDb } from "@/lib/server/payroll-db";
 
 export async function POST(req: NextRequest) {
+  if (process.env.PAYROLL_RELEASE_TARGET !== "production")
+    return NextResponse.json({ error: "LINE notification unavailable" }, { status: 503 });
   const rejected = requireAdmin(req, true);
   if (rejected) return rejected;
   const input = await readSmallAdminBody<{ month: string; year: string }>(req, 1024);

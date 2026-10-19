@@ -3,6 +3,8 @@ import { payrollDb } from "@/lib/server/payroll-db";
 import { reply } from "@/lib/server/route-guards";
 export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
+  if (process.env.PAYROLL_RELEASE_TARGET !== "production")
+    return reply({ error: "ไม่ได้รับอนุญาต" }, 401);
   const secret = process.env.CRON_SECRET;
   if (!secret || req.headers.get("authorization") !== "Bearer " + secret)
     return reply({ error: "ไม่ได้รับอนุญาต" }, 401);

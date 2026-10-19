@@ -4,6 +4,8 @@ import { verifyLineWebhookSignature } from "@/lib/server/line-signature";
 import { collectLineGroupReplies } from "@/lib/server/line-webhook-events";
 
 export async function POST(req: Request) {
+  if (process.env.PAYROLL_RELEASE_TARGET !== "production")
+    return NextResponse.json({ error: "Webhook unavailable" }, { status: 503 });
   try {
     // LINE signs the exact raw body, not parsed JSON. Never process an event
     // until its original webhook signature has been verified.
