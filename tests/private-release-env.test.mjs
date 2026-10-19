@@ -10,6 +10,7 @@ const fixture = {
   LINE_CHANNEL_ACCESS_TOKEN: "FICTIONAL_ONLY_LINE_ACCESS_TOKEN_34567890",
   LINE_GROUP_ID: "FICTIONAL_ONLY_LINE_GROUP_45678901",
   STAFF_DIRECTORY_DISABLED: "true",
+  PAYROLL_ROSTER_MODE: "server_sheet",
   SUPABASE_URL: "https://dpaqvxtbpaduknergflm.supabase.co",
   NEXT_PUBLIC_SUPABASE_URL: "https://dpaqvxtbpaduknergflm.supabase.co",
   APP_ORIGIN: "https://private-fixture.example.invalid",
@@ -67,6 +68,32 @@ test("isolated Test permits disabled staff directory without a real roster", () 
   const r = check({ STAFF_DIRECTORY_DISABLED: "true", STAFF_SHEET_ID: null });
   assert.equal(r.status, 0, r.stderr);
 });
+test("Production must select a roster mode explicitly, never default silently", () => {
+  const r = check({
+    PAYROLL_RELEASE_TARGET: "production",
+    PAYROLL_ROSTER_MODE: null,
+    STAFF_DIRECTORY_DISABLED: "false",
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+  });
+  assert.equal(r.status, 1);
+  assert.ok(JSON.parse(r.stdout).missingOrInvalid.includes("PAYROLL_ROSTER_MODE"));
+});
+
+test("Production server_sheet refuses omitted or mistyped roster enabled flag", () => {
+  for (const status of [null, "FALSE", "enabled", "true"]) {
+    const r = check({
+      PAYROLL_RELEASE_TARGET: "production",
+      PAYROLL_ROSTER_MODE: "server_sheet",
+      STAFF_DIRECTORY_DISABLED: status,
+      SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+      NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    });
+    assert.equal(r.status, 1);
+    assert.ok(JSON.parse(r.stdout).missingOrInvalid.includes("STAFF_DIRECTORY_DISABLED"));
+  }
+});
+
 test("Production requires a real directory and rejects a disabled directory flag", () => {
   const r = check({
     PAYROLL_RELEASE_TARGET: "production",

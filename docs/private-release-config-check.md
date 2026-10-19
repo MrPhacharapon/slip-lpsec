@@ -14,8 +14,9 @@
 - Production ต้องตั้งค่า `CRON_SECRET`, `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN` และ `LINE_GROUP_ID` สำหรับเส้นทาง Cron และ LINE ที่มีอยู่แล้วในระบบ และไม่ใช้ค่าลับซ้ำกัน
 - Test ต้องใช้ `STAFF_DIRECTORY_DISABLED=true` เพื่อไม่ดึงทะเบียนบุคลากรจริง ส่วน Production ให้กำหนดตาม `PAYROLL_ROSTER_MODE`: `server_sheet` ต้องเปิดการอ่านทะเบียน และ `local_csv` ต้องปิดการอ่านทะเบียน
 - `APP_ORIGIN`: ต้องเป็น HTTPS Origin ของเว็บไซต์ที่ใช้งาน (ไม่ใช่ HTTP หรือ URL ที่มี path/credential)
-- `PAYROLL_ROSTER_MODE`: `server_sheet` (ค่าเริ่มต้น) หรือ `local_csv` (นำเข้า CSV ส่วนตัวทุกครั้งที่ Admin อัปโหลด); หากใช้ `local_csv` จะไม่บังคับ `STAFF_SHEET_ID` แต่ตำแหน่งที่เคยอ่านจาก Sheet อาจไม่แสดง
+- `PAYROLL_ROSTER_MODE`: Production **ต้องระบุค่าเองอย่างชัดเจน** เป็น `server_sheet` หรือ `local_csv` ไม่ปล่อยให้ใช้ค่าเริ่มต้นเงียบ ๆ; ผู้ดูแลยืนยันวันที่ 19 ต.ค. 2569 ให้ Production ใช้ **`server_sheet`** เพื่อใช้ Google Sheets เดิมเหมือนระบบก่อนปรับปรุง
 - `STAFF_SHEET_ID`: ต้องระบุเมื่อใช้ `server_sheet` ใน Production; Test และ Production `local_csv` ไม่บังคับ แต่ถ้าระบุยังต้องเป็น ID ที่มีรูปแบบถูกต้อง
+- `STAFF_DIRECTORY_DISABLED`: Production `server_sheet` ต้องระบุค่า **`false`** ชัดเจน (ห้ามเว้นว่าง); Test ต้องเป็น **`true`** เพื่อไม่เชื่อมทะเบียนจริง
 
 ## วิธีตรวจโดยไม่เปิดเผย Secret
 
@@ -33,7 +34,7 @@ node scripts/check-private-release-env.mjs
 
 **ผล PASS ไม่ได้พิสูจน์ว่าคีย์ใช้ได้จริง หรือยืนยัน Backup/Restore, RLS, Storage และ API ที่กำลังรัน** ต้องผ่าน Gate ตรวจรับอื่นด้วยเสมอ ห้ามใช้ผลนี้เป็นคำอนุมัติ Merge/Deploy
 
-## ผลตรวจรายการคีย์จาก Vercel (16 ตุลาคม 2569)
+## ผลตรวจรายการคีย์จาก Vercel (19 ตุลาคม 2569)
 
 อ่านเฉพาะ Metadata ของ Production Environment โดย **ไม่ถอดรหัสค่า** พบเพียง `LINE_GROUP_ID`, `LINE_CHANNEL_ACCESS_TOKEN`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` จึงยังไม่มีหลักฐานการตั้งค่า 7 คีย์ที่จำเป็นตามรายการด้านบน
 
@@ -43,4 +44,6 @@ node scripts/check-private-release-env.mjs
 
 หน้าเว็บบุคลากร **ใช้เลขบัญชี 10 หลักค้นหาสลิปตามเดิม** ไม่เพิ่ม OTP การล็อกอินบุคลากร หรือการยืนยันเจ้าของบัญชีในเวอร์ชันนี้ (ความเสี่ยงที่เหลือบันทึกไว้ในแผน Production Cutover)
 
-โครงการยัง **NO-GO** จนกว่าทดสอบ Next.js → Supabase Test แบบ Full-stack, ตรวจ PDF.js กับไฟล์จริงในเครื่องส่วนตัว, ทดสอบ Restore จาก Production Backup และได้รับอนุมัติเปลี่ยน Production
+**ผลที่ผู้ดูแลยืนยันแล้ว:** G2 ผ่านการเชื่อม Next.js → Supabase Test ส่วนตัว, G3 ผ่าน PDF.js+CSV จริง 10 เดือน / 338 หน้า / 376 สลิป; G4 ผู้ดูแลเลือกข้าม Backup/Restore ทั้ง DB และ PDF (WAIVED ไม่ใช่ PASS). โครงการยัง **NO-GO** เนื่องจาก G5–G8 ยังไม่ผ่าน และไม่มีจุดกู้คืน PostgreSQL ที่ตรวจสอบแล้ว
+
+แนวทางปฏิบัติสำหรับ Google Sheets เดิมและตัวแปรที่ต้องตั้งเฉพาะ Production: [G5 Google Sheets operator setup](./g5-server-sheet-operator.md)

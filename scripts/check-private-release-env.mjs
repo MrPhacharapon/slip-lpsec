@@ -35,7 +35,10 @@ function validate(env) {
   // selects a fresh private CSV for each upload. Server Sheet is the legacy
   // default, requiring the private server-only Sheet ID.
   const rosterMode = env.PAYROLL_ROSTER_MODE || "server_sheet";
-  if (!["server_sheet", "local_csv"].includes(rosterMode)) {
+  // Never silently rely on the legacy default during Production cutover:
+  // the roster source is an explicit operator-selected privacy decision.
+  if (!["server_sheet", "local_csv"].includes(rosterMode) ||
+      (stage === "production" && !env.PAYROLL_ROSTER_MODE)) {
     errors.push("PAYROLL_ROSTER_MODE");
   }
   if (stage === "test") {
@@ -46,7 +49,9 @@ function validate(env) {
     if (rosterMode === "local_csv") {
       if (env.STAFF_DIRECTORY_DISABLED !== "true") errors.push("STAFF_DIRECTORY_DISABLED");
     } else {
-      if (env.STAFF_DIRECTORY_DISABLED === "true") errors.push("STAFF_DIRECTORY_DISABLED");
+      // Require explicit enabled flag; an omitted/typo flag is not proof
+      // that the operator intentionally approved live Google Sheets reads.
+      if (env.STAFF_DIRECTORY_DISABLED !== "false") errors.push("STAFF_DIRECTORY_DISABLED");
       if (!env.STAFF_SHEET_ID?.trim()) errors.push("STAFF_SHEET_ID");
     }
   }

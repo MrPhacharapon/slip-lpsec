@@ -32,7 +32,7 @@ Configure in **Vercel Environment Variables, privately**, for the precise deploy
 - `ADMIN_PASSWORD`, `ADMIN_SESSION_SECRET`, `PAYROLL_RATE_LIMIT_SECRET` (distinct, adequately long)
 - `APP_ORIGIN` (production HTTPS origin); `PAYROLL_RELEASE_TARGET=production`
 - `CRON_SECRET`, `LINE_CHANNEL_SECRET` plus existing `LINE_CHANNEL_ACCESS_TOKEN` and `LINE_GROUP_ID`
-- Choose `PAYROLL_ROSTER_MODE=local_csv` + `STAFF_DIRECTORY_DISABLED=true`, **or** `PAYROLL_ROSTER_MODE=server_sheet` + `STAFF_SHEET_ID` and enabled directory. This choice affects the staff roster and position display and must match the accepted UI workflow.
+- **Operator confirmed 19 Oct:** Production `PAYROLL_ROSTER_MODE=server_sheet`, `STAFF_DIRECTORY_DISABLED=false` (explicit, not omitted), and server-only `STAFF_SHEET_ID` from the existing roster. The old staff/Admin UI reference the same source sheet (identifier never repeated in PR). Test/Preview must keep `STAFF_DIRECTORY_DISABLED=true` and must not access the real Sheet. See [private G5 steps](./g5-server-sheet-operator.md).
 
 Never put any `SUPABASE_SERVICE_ROLE_KEY`, admin password, session secret, rate limiter secret, Google roster identifier or LINE secret under `NEXT_PUBLIC_`; never place values in GitHub/CI/chat. Set environment values before the **future authorized** rebuild/deploy; setting variables alone does not run a production deployment.
 
