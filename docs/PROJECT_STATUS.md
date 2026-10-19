@@ -1,4 +1,17 @@
 # slip-lpsec — PROJECT_STATUS
+
+## Live recheck — 19 October 2026 (supersedes earlier snapshot below)
+
+- GitHub: feature branch head before this change was \`dfe3223629f781d5e0aa8eb9e5f8e5dbe9af237d\` with [GitHub Actions 39212346861](https://github.com/MrPhacharapon/slip-lpsec/actions/runs/39212346861) successful at that exact SHA; Draft PR #1 open. Any follow-up commit requires its own Quality, browser-e2e and validate checks.
+- Vercel: production deployment remains on main \`fdced74510f57ab83a758642f2edba08dad0b316\`. Environment metadata lists 11 keys; Google service-account email and private key, plus six server-only payroll/LINE/cron secrets, are not configured. Key *presence* does not establish usable values.
+- G2/G3: PASS only as **private operator-reported evidence** (G3 10 PDFs, 338 pages, 376 slips, zero failed). Do not falsely classify these as a public CI test of real data.
+- G4: **WAIVED_BY_OPERATOR**, not PASS. No backup or restore will be performed per operator decision; original payroll PDFs are separately held, but no PostgreSQL restore point is verified.
+- G5: \`server_sheet\` confirmed for both Admin and staff. Authenticated Google Sheets API replacement prepared, real private service account and authorized integration not tested. Current legacy Google Sheet has anyone/reader sharing; do not revoke it while the old frontend depends on it.
+- G6: BLOCKED. Production RLS OFF for \`public.slips\` and \`public.upload_history\`; Supabase advisor confirms two security findings. Existing bucket and privileges require coordinated review, not an isolated live toggle.
+- G7: PARTIAL. Preserve all 12 Storage objects (9 linked, 3 unlinked); metadata does not prove identities of unlinked objects.
+- G8: NO-GO. No Production SQL, ACL, Google sharing change, merge or deployment has been authorized.
+- This change prepares **pure synthetic Google Sheets JSON contract tests** and rejects malformed/ambiguous gid=0 tab metadata without contacting personnel records.
+
 สถานะที่ตรวจเมื่อ 18 ตุลาคม 2569; **Snapshot ไม่ใช่การติดตามแบบ Real-time**
 
 ## หลักฐานก่อนชุดแก้ไขล่าสุด

@@ -1,8 +1,7 @@
 import { signGoogleSheetsAssertion } from "./google-sheet-auth";
 import { readBoundedResponseText } from "./bounded-response";
 import { serverSheetRosterEnabled } from "./roster-config";
-
-type SheetTab = { properties?: { sheetId?: unknown; title?: unknown } };
+import { parsePrivateStaffSheetTitle, parsePrivateStaffSheetRows } from "./google-sheet-payload";
 
 /**
  * Fetch A:D of the legacy gid=0 roster using a private read-only Google
@@ -47,12 +46,7 @@ export async function loadPrivateStaffSheetRows(): Promise<string[][]> {
   });
   if (!details.ok) throw new Error("Private Google Sheet is not accessible");
   const metadata: unknown = JSON.parse(await readBoundedResponseText(details, 100_000));
-  const tabs = (metadata as { sheets?: unknown } | null)?.sheets;
-  if (!Array.isArray(tabs)) throw new Error("Missing Google Sheet tabs");
-  const first = (tabs as SheetTab[]).find(x => x?.properties?.sheetId === 0);
-  const title = first?.properties?.title;
-  if (typeof title !== "string" || !title.length || title.length > 200)
-    throw new Error("Expected gid=0 staff roster tab not found");
+  const title = parsePrivateStaffSheetTitle(metadata);
   const safeTitle = title.replace(/'/g, "''");
   const range = encodeURIComponent("'" + safeTitle + "'!A:D");
   const data = await fetch(origin + "/values/" + range + "?majorDimension=ROWS", {
@@ -60,11 +54,5 @@ export async function loadPrivateStaffSheetRows(): Promise<string[][]> {
   });
   if (!data.ok) throw new Error("Private Google Sheet data not readable");
   const content: unknown = JSON.parse(await readBoundedResponseText(data, 1_000_000));
-  const values = (content as { values?: unknown } | null)?.values;
-  if (!Array.isArray(values) || values.length < 1 || values.length > 1_000 ||
-      !values.every(row => Array.isArray(row) && row.length <= 4 &&
-        row.every((cell: unknown) => typeof cell === "string"))) {
-    throw new Error("Private Google Sheet row format is invalid");
-  }
-  return values as string[][];
+  return parsePrivateStaffSheetRows(content);
 }
