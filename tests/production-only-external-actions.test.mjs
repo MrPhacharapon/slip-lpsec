@@ -18,8 +18,15 @@ for (const path of [
       assert.ok(gate < code.indexOf("payrollDb()"));
       assert.ok(gate < code.indexOf("LINE_CHANNEL_ACCESS_TOKEN"));
     } else if (path.includes("line-webhook")) {
-      assert.ok(gate < code.indexOf("readBoundedText(req"));
-      assert.ok(gate < code.indexOf("LINE_CHANNEL_ACCESS_TOKEN"));
+      const bounded = code.indexOf("readBoundedText(req");
+      const signature = code.indexOf("verifyLineWebhookSignature(rawBody");
+      const parse = code.indexOf("JSON.parse(rawBody)");
+      assert.ok(bounded >= 0 && bounded < signature && signature < parse && parse < gate,
+        "bounded body, signature and JSON validation must preserve webhook contract");
+      assert.ok(gate < code.indexOf("LINE_CHANNEL_ACCESS_TOKEN"),
+        "non-production must stop before provider credentials");
+      assert.ok(gate < code.indexOf('fetch("https://api.line.me/'),
+        "non-production must stop before provider network calls");
     } else {
       assert.ok(gate < code.indexOf("CRON_SECRET"));
       assert.ok(gate < code.indexOf("payrollDb()"));

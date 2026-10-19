@@ -4,8 +4,6 @@ import { verifyLineWebhookSignature } from "@/lib/server/line-signature";
 import { collectLineGroupReplies } from "@/lib/server/line-webhook-events";
 
 export async function POST(req: Request) {
-  if (process.env.PAYROLL_RELEASE_TARGET !== "production")
-    return NextResponse.json({ error: "Webhook unavailable" }, { status: 503 });
   try {
     // LINE signs the exact raw body, not parsed JSON. Never process an event
     // until its original webhook signature has been verified.
@@ -36,6 +34,14 @@ export async function POST(req: Request) {
     // A single signed webhook may contain several unrelated or group events;
     // processing only events[0] silently drops later group-ID requests.
     const commands = collectLineGroupReplies(body.events);
+
+    // Non-Production may validate the bounded signed webhook contract, but must
+    // never read provider credentials or contact LINE. Acknowledge verified
+    // events so isolated E2E can exercise malformed/batched payload behavior.
+    if (process.env.PAYROLL_RELEASE_TARGET !== "production") {
+      return NextResponse.json({ status: "ok" });
+    }
+
     const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (channelAccessToken && commands.length > 0) {
       let replyFailed = false;
