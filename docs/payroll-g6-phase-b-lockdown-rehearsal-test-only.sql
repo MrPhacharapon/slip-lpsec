@@ -25,6 +25,54 @@ CREATE POLICY "allow_all 1t7jg3_2" ON storage.objects
 CREATE POLICY "allow_all 1t7jg3_3" ON storage.objects
   FOR DELETE TO public USING (bucket_id='slips');
 
+-- Negative drift check: an unexpected fifth public policy must trigger the
+-- same fail-closed inventory condition used by Production Phase B.
+CREATE POLICY "synthetic_unexpected_storage_policy" ON storage.objects
+  FOR SELECT TO public USING (bucket_id='slips');
+DO $drift$
+DECLARE rejected boolean := false;
+BEGIN
+  BEGIN
+    IF (SELECT count(*) FROM pg_policies
+        WHERE schemaname='storage' AND tablename='objects') <> 4
+       OR EXISTS (
+         SELECT 1 FROM pg_policies
+         WHERE schemaname='storage' AND tablename='objects'
+           AND policyname NOT IN (
+             'allow_all 1t7jg3_0','allow_all 1t7jg3_1',
+             'allow_all 1t7jg3_2','allow_all 1t7jg3_3'
+           )
+       )
+    THEN RAISE EXCEPTION 'Storage policy inventory changed; re-review before lockdown'; END IF;
+  EXCEPTION WHEN OTHERS THEN
+    rejected := true;
+  END;
+  IF NOT rejected THEN
+    RAISE EXCEPTION 'unexpected Storage policy drift was not rejected';
+  END IF;
+END
+$drift$;
+DROP POLICY "synthetic_unexpected_storage_policy" ON storage.objects;
+
+-- Exact reviewed inventory now passes the Production Phase-B precheck.
+DO $precheck$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id='slips')
+  THEN RAISE EXCEPTION 'slips Storage bucket missing'; END IF;
+  IF (SELECT count(*) FROM pg_policies
+      WHERE schemaname='storage' AND tablename='objects') <> 4
+     OR EXISTS (
+       SELECT 1 FROM pg_policies
+       WHERE schemaname='storage' AND tablename='objects'
+         AND policyname NOT IN (
+           'allow_all 1t7jg3_0','allow_all 1t7jg3_1',
+           'allow_all 1t7jg3_2','allow_all 1t7jg3_3'
+         )
+     )
+  THEN RAISE EXCEPTION 'Storage policy inventory changed; re-review before lockdown'; END IF;
+END
+$precheck$;
+
 -- Same security-lockdown body as Production Phase B.
 ALTER TABLE public.slips ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.upload_history ENABLE ROW LEVEL SECURITY;
