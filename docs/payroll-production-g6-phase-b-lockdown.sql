@@ -24,6 +24,22 @@ BEGIN
         'reorder_payroll_history','check_payroll_rate_limit'
       ) AND NOT p.prosecdef) <> 8
   THEN RAISE EXCEPTION 'Phase A RPC set incomplete'; END IF;
+
+  -- Fail closed if Storage ACLs drift from the exact reviewed legacy state.
+  -- Do not guess which unexpected policy is safe to remove.
+  IF NOT EXISTS (SELECT 1 FROM storage.buckets WHERE id='slips')
+  THEN RAISE EXCEPTION 'slips Storage bucket missing'; END IF;
+  IF (SELECT count(*) FROM pg_policies
+      WHERE schemaname='storage' AND tablename='objects') <> 4
+     OR EXISTS (
+       SELECT 1 FROM pg_policies
+       WHERE schemaname='storage' AND tablename='objects'
+         AND policyname NOT IN (
+           'allow_all 1t7jg3_0','allow_all 1t7jg3_1',
+           'allow_all 1t7jg3_2','allow_all 1t7jg3_3'
+         )
+     )
+  THEN RAISE EXCEPTION 'Storage policy inventory changed; re-review before lockdown'; END IF;
 END
 $precheck_phase_b$;
 
@@ -71,9 +87,7 @@ BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_policies
     WHERE schemaname='storage' AND tablename='objects'
-      AND policyname IN ('allow_all 1t7jg3_0','allow_all 1t7jg3_1',
-                         'allow_all 1t7jg3_2','allow_all 1t7jg3_3')
-  ) THEN RAISE EXCEPTION 'legacy public Storage policies remain'; END IF;
+  ) THEN RAISE EXCEPTION 'Storage object policies remain after lockdown'; END IF;
 END
 $verify_phase_b$;
 

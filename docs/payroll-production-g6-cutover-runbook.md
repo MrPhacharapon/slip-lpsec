@@ -62,13 +62,16 @@ has not run, legacy Main remains operational.
 ## Promote, then Phase B lockdown (final coordinated Production decision)
 
 Only after staged smoke PASS:
-1. Promote the exact staged build to the live Production domain.
-2. Immediately apply `docs/payroll-production-g6-phase-b-lockdown.sql`.
-3. Re-run Supabase Security Advisor and aggregate integrity checks.
-4. Verify anon/authenticated direct table access is denied.
-5. Verify unauthenticated Storage download is denied while Admin server download
+1. Re-run the read-only Storage policy inventory. Phase B is intentionally
+   fail-closed unless the reviewed legacy inventory is still exactly four
+   policies: `allow_all 1t7jg3_0` through `allow_all 1t7jg3_3`.
+2. Promote the exact staged build to the live Production domain.
+3. Immediately apply `docs/payroll-production-g6-phase-b-lockdown.sql`.
+4. Re-run Supabase Security Advisor and aggregate integrity checks.
+5. Verify anon/authenticated direct table access is denied.
+6. Verify unauthenticated Storage download is denied while Admin server download
    still succeeds.
-6. Then remove `anyone / reader` from the roster Google Sheet, leaving the
+7. Then remove `anyone / reader` from the roster Google Sheet, leaving the
    dedicated Service Account as Viewer. This Google permission change is a
    separate explicit owner action.
 

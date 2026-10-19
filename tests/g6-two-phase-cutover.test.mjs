@@ -37,9 +37,13 @@ test("Phase B is security-only and never deletes payroll or Storage objects",()=
   assert.doesNotMatch(b,/DROP\s+TABLE/i);
   assert.doesNotMatch(b,/TRUNCATE/i);
 });
-test("Phase B drops all four exact legacy public Storage policies",()=>{
+test("Phase B fails closed on Storage policy drift and drops the reviewed four",()=>{
+  assert.match(b,/Storage policy inventory changed; re-review before lockdown/);
+  assert.match(b,/pg_policies[\s\S]*<> 4/);
+  assert.match(b,/policyname NOT IN/);
   for(const n of ["0","1","2","3"])
     assert.match(b,new RegExp('DROP POLICY IF EXISTS "allow_all 1t7jg3_'+n+'" ON storage\\.objects'));
+  assert.match(b,/Storage object policies remain after lockdown/);
 });
 test("Test rehearsal simulates legacy exposure then applies same lockdown primitives under rollback",()=>{
   assert.match(r,/ALTER TABLE public\.slips DISABLE ROW LEVEL SECURITY/i);
