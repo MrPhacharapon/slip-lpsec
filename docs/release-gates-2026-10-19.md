@@ -2,6 +2,13 @@
 
 **Authoritative latest gate snapshot for this branch; historical 16–18 October notes are superseded where inconsistent.**
 
+## Latest evidence — G6 representative Test rehearsal (19 October 2026)
+
+- New G6 component rehearsal executed using only synthetic legacy-shaped tables in Supabase Test under \`BEGIN\` ... \`ROLLBACK\`: additive columns/table, unique business keys, RLS and service-role grants; duplicates denied and legacy-shaped fake records preserved. Post-check confirmed the ephemeral schema absent; Test slips/history/Storage object counts remained zero. Test rate-limit counters measured 16 and were not modified by this exercise. Evidence: [G6 synthetic rehearsal](./payroll-g6-legacy-rehearsal-evidence.md).
+- This is **not** a complete Production migration rehearsal; eight RPC integration, live request concurrency, no-backup cutover recovery, and Google credentials remain blockers. G6 stays **BLOCKED**.
+- Prior exact-SHA G1 successful evidence: \`22c0aee5097c5f31afbbeaa8103fdfd6120db782\`, [CI 39220252298 PASS](https://github.com/MrPhacharapon/slip-lpsec/actions/runs/39220252298), 152 Node tests. The new documentation commit must have a *new* exact-SHA CI run.
+
+
 - G2: Private operator reported real Next.js ↔ isolated Supabase Test PASS, including anonymous-denial check and cleanup.
 - G3: Private operator reported actual PDF.js+CSV `PASS` for 10 PDFs / 338 pages / 376 slips, Jan–Oct 2569, zero failures and exit code 0. Confirm the corrected August source was selected. Original PDFs and roster were never committed to GitHub.
 - G4: `WAIVED_BY_OPERATOR`, not `PASS`. User explicitly declined PostgreSQL DB backup, Storage PDF re-backup and Restore rehearsal. User affirms possession of original PDF copies; no independently verified Production DB restore point exists. This waiver does **not** authorize irreversible data modifications or public rollback.
