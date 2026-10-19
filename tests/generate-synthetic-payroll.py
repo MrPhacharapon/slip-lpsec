@@ -55,9 +55,15 @@ def draw_slip(person, slot, position):
     if reverse_period_header:
         # Emulate real PDFs: month/year operator precedes the label operator,
         # even though the page visually reads label followed by month/year.
+        period_text = person.get("month", month) + " ปี พ.ศ. "
         pdf.setFont("FixtureThai", 14)
-        pdf.drawString(535, 770-top_offset, person.get("month", month) +
-                       " ปี พ.ศ. " + str(person.get("year", year)))
+        pdf.drawString(535, 770-top_offset, period_text)
+        # The actual legacy PDF has reliable 4-digit text. Use Helvetica
+        # to encode digits just like the already-proven synthetic generator.
+        pdf.setFont("Helvetica", 14)
+        pdf.drawString(535 + pdfmetrics.stringWidth(period_text, "FixtureThai", 14) + 1,
+                       770-top_offset, str(person.get("year", year)))
+        pdf.setFont("FixtureThai", 14)
         pdf.drawString(270, 771.5-top_offset,
                        "ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน ")
     else:
