@@ -19,6 +19,7 @@ people = data["people"]
 layout = data["layout"]
 month = data.get("month", "กันยายน")
 year = str(data.get("year", "2569"))
+reverse_period_header = bool(data.get("reversePeriodHeader", False))
 assert month in ("มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
                  "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม")
 assert len(year) == 4 and year.startswith("25") and year.isdigit()
@@ -51,12 +52,21 @@ def draw_segments(y, parts):
 
 def draw_slip(person, slot, position):
     top_offset = 396 * slot
-    draw_segments(770-top_offset, [
-        ("FixtureThai",
-         "ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน " +
-         person.get("month", month) + " ปี พ.ศ. "),
-        ("Helvetica", str(person.get("year", year)))
-    ])
+    if reverse_period_header:
+        # Emulate real PDFs: month/year operator precedes the label operator,
+        # even though the page visually reads label followed by month/year.
+        pdf.setFont("FixtureThai", 14)
+        pdf.drawString(535, 770-top_offset, person.get("month", month) +
+                       " ปี พ.ศ. " + str(person.get("year", year)))
+        pdf.drawString(270, 771.5-top_offset,
+                       "ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน ")
+    else:
+        draw_segments(770-top_offset, [
+            ("FixtureThai",
+             "ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน " +
+             person.get("month", month) + " ปี พ.ศ. "),
+            ("Helvetica", str(person.get("year", year)))
+        ])
     draw_segments(742-top_offset, [
         ("FixtureThai", "ชื่อ -นามสกุล " + person["name"])
     ])

@@ -1,6 +1,6 @@
 /** Fail-closed checks for payroll PDF mapping. No salary data is logged. */
 export type RosterPerson = { name: string; bankAccount: string; positionNumber: string };
-export type PdfToken = { str: string; y: number };
+export type PdfToken = { str: string; y: number; x?: number };
 export type PageRegion = "top" | "bottom" | "full";
 export type VerifiedSlip = { person: RosterPerson; region: PageRegion };
 
@@ -184,6 +184,49 @@ export function validateSlipPageLayout(
   return "single";
 }
 
+
+/**
+ * Real payroll PDFs sometimes store the month/year text *before* the
+ * preceding "ประจำเดือน" label in the PDF content stream. They are laid out
+ * correctly left-to-right at nearly the same physical y. Reconstruct ONLY
+ * that printed heading by visual coordinates, not the full page or owner rows.
+ *
+ * A valid header requires a single "ประจำเดือน" and one matching, contiguous
+ * month/year after x-ordering. An incidental month/year elsewhere on the
+ * page can never override the printed heading. Missing/partial geometry in
+ * real PDFs fails closed. Legacy (no-x) test tokens retain their prior order.
+ */
+function printedPeriodHeader(region: PdfToken[]): string {
+  const cleaned = (items: PdfToken[]) =>
+    normalizeText(items.map(t => t.str).join(""))
+      .replace(/\u0000/g, "")
+      .replace(/[๐-๙]/g, d => String(d.charCodeAt(0) - 0x0e50));
+  const original = cleaned(region);
+  if ((original.match(/ประจำเดือน/g) ?? []).length !== 1) {
+    throw new SlipValidationError("พบหัวเดือนในสลิปไม่ครบหรือซ้ำกัน");
+  }
+  const withX = region.filter(t => Number.isFinite(t.x));
+  if (!withX.length) return original;
+  if (withX.length !== region.length) {
+    throw new SlipValidationError("ตำแหน่งข้อความหัวเอกสารไม่ครบ");
+  }
+  const labelTokens = region.filter(t => normalizeText(t.str).includes("ประจำเดือน"));
+  if (labelTokens.length !== 1) {
+    throw new SlipValidationError("ไม่สามารถระบุตำแหน่งหัวเดือนอย่างปลอดภัย");
+  }
+  const label = labelTokens[0];
+  const line = region.filter(t => Number.isFinite(t.y) &&
+    Math.abs(t.y - label.y) <= 8);
+  if (!line.some(t => t === label)) {
+    throw new SlipValidationError("ระบุบรรทัดเดือน–ปีไม่ได้");
+  }
+  // Use stable x-order within the physically identified line only.
+  const sorted = line.map((t,i) => ({t,i}))
+    .sort((a,b) => (a.t.x! - b.t.x!) || a.i - b.i)
+    .map(({t}) => t);
+  return cleaned(sorted);
+}
+
 /**
  * Require printed month and year in each slip heading, not only the admin
  * selection. PDF.js may split พ.ศ. across separate text spans or NUL glyphs.
@@ -210,9 +253,7 @@ export function assertSlipPagePeriod(
     "g",
   );
   for (const region of regions) {
-    const extracted = normalizeText(region.map(t=>t.str).join(""))
-      .replace(/\u0000/g,"")
-      .replace(/[๐-๙]/g,d=>String(d.charCodeAt(0)-0x0e50));
+    const extracted = printedPeriodHeader(region);
     const printed = [...extracted.matchAll(pattern)];
     if (printed.length !== 1 || printed[0][1] !== month || printed[0][2] !== year)
       throw new SlipValidationError("เดือนหรือปีในสลิปไม่ตรงกับที่ผู้ดูแลเลือก");
@@ -245,11 +286,14 @@ export function diagnosePrintedPeriodSignals(
     const normalized = normalizeText(region.map(t => t.str).join(""))
       .replace(/\u0000/g, "")
       .replace(/[๐-๙]/g, d => String(d.charCodeAt(0) - 0x0e50));
+    let reconstructed = "";
+    try { reconstructed = printedPeriodHeader(region); }
+    catch { /* report only Boolean hints; never extracted content */ }
     return {
       periodLabel: normalized.includes(label),
       selectedMonth: months.includes(expectedMonth) && normalized.includes(normalizeText(expectedMonth)),
       selectedYear: /^25[0-9]{2}$/.test(expectedYear) && normalized.includes(expectedYear),
-      recognizedPattern: pattern.test(normalized),
+      recognizedPattern: pattern.test(reconstructed),
     };
   });
 }

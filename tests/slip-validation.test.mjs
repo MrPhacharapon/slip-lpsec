@@ -194,3 +194,45 @@ test('private period hints are separated by PDF half and never echo tokens', () 
   assert.ok(!serialized.includes('ชื่อ'));
   assert.ok(!serialized.includes('1234567890'));
 });
+
+test('real-like content stream puts period value before its printed label',()=>{
+  const reversed=[
+    {str:'มกราคม ปี พ.ศ. 2569',x:529,y:780},
+    {str:'ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน ',x:304,y:781.5},
+    {str:'ชื่อ -นามสกุล นายทดสอบ',x:12,y:748},
+  ];
+  assert.doesNotThrow(()=>assertSlipPagePeriod(reversed,792,'single','มกราคม','2569'));
+  assert.throws(()=>assertSlipPagePeriod(reversed,792,'single','กุมภาพันธ์','2569'),SlipValidationError);
+  assert.throws(()=>assertSlipPagePeriod(reversed,792,'single','มกราคม','2568'),SlipValidationError);
+  assert.equal(diagnosePrintedPeriodSignals(reversed,792,'single','มกราคม','2569')[0].recognizedPattern,true);
+});
+test('reordered period must be on the exact heading line; not elsewhere',()=>{
+  const outside=[
+    {str:'ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน',x:304,y:780},
+    {str:'มกราคม ปี พ.ศ. 2569',x:529,y:750},
+    {str:'รายรับ',x:15,y:710},
+  ];
+  assert.throws(()=>assertSlipPagePeriod(outside,792,'single','มกราคม','2569'),SlipValidationError);
+});
+test('reordered header does not accept duplicate or contradictory printed periods',()=>{
+  const reversed=[
+    {str:'มกราคม ปี พ.ศ. 2569',x:529,y:780},
+    {str:'ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน',x:304,y:781.5},
+    {str:'ประจำเดือน กุมภาพันธ์ ปี พ.ศ. 2569',x:304,y:760},
+  ];
+  assert.throws(()=>assertSlipPagePeriod(reversed,792,'single','มกราคม','2569'),SlipValidationError);
+  assert.throws(()=>assertSlipPagePeriod(reversed,792,'single','กุมภาพันธ์','2569'),SlipValidationError);
+});
+test('reordered heading is verified separately for both halves of compact page',()=>{
+  const top=[
+    {str:'กันยายน ปี พ.ศ. 2569',x:529,y:780},
+    {str:'ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน',x:304,y:781.5},
+  ];
+  const bottom=[
+    {str:'กันยายน ปี พ.ศ. 2569',x:529,y:384},
+    {str:'ใบรับรองการจ่ายเงินเดือนและเงินอื่น ประจำเดือน',x:304,y:385.5},
+  ];
+  assert.doesNotThrow(()=>assertSlipPagePeriod([...top,...bottom],792,'double','กันยายน','2569'));
+  const invalid=[...top,{...bottom[0],str:'ตุลาคม ปี พ.ศ. 2569'},bottom[1]];
+  assert.throws(()=>assertSlipPagePeriod(invalid,792,'double','กันยายน','2569'),SlipValidationError);
+});

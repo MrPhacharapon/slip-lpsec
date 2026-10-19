@@ -84,7 +84,7 @@ async function checkPdf(file, roster, expectedMonth, expectedYear) {
       }
       const text = await page.getTextContent();
       const tokens = text.items.filter(item => "str" in item && "transform" in item)
-        .map(item => ({ str: item.str, y: item.transform[5] }));
+        .map(item => ({ str: item.str, x: item.transform[4], y: item.transform[5] }));
       const width = page.view[2] - page.view[0];
       const height = page.view[3] - page.view[1];
       let layout, matches;

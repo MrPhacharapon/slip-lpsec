@@ -17,9 +17,9 @@ const people = [
   { name: "นางสาวทดลอง สาม", account: "1112223334", position: "0000003" },
 ];
 
-function fixture(layout, occupants, wrongPosition = false, month = "กันยายน", year = "2569") {
+function fixture(layout, occupants, wrongPosition = false, month = "กันยายน", year = "2569", reversePeriodHeader = false) {
   return execFileSync("python3", ["tests/generate-synthetic-payroll.py"], {
-    input: JSON.stringify({ layout, people: occupants, wrongPosition, month, year }),
+    input: JSON.stringify({ layout, people: occupants, wrongPosition, month, year, reversePeriodHeader }),
     maxBuffer: 8 * 1024 * 1024,
   });
 }
@@ -193,4 +193,34 @@ test("private PDF.js reports a redacted layout reason for unsupported PDF paper 
     for (const secret of [dir, ...people.flatMap(p=>[p.name,p.account,p.position])])
       assert.ok(!visible.includes(secret), "must redact private fields");
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("private PDF.js validates reordered printed headers while rejecting mismatches", () => {
+  const dir=mkdtempSync(join(tmpdir(),"payroll-reordered-fictional-"));
+  try {
+    const correctA=join(dir,"synthetic-reordered-a.pdf");
+    const correctB=join(dir,"synthetic-reordered-b.pdf");
+    const wrongMonth=join(dir,"synthetic-reordered-invalid-month.pdf");
+    const wrongYear=join(dir,"synthetic-reordered-invalid-year.pdf");
+    writeFileSync(correctA, fixture("A",people,false,"มกราคม","2569",true));
+    writeFileSync(correctB, fixture("B",people,false,"กันยายน","2569",true));
+    writeFileSync(wrongMonth, fixture("A",[people[0]],false,"กุมภาพันธ์","2569",true));
+    writeFileSync(wrongYear, fixture("A",[people[0]],false,"มกราคม","2568",true));
+    const a=checkCli(dir,[{file:correctA,month:"มกราคม"},{file:correctB,month:"กันยายน"}]);
+    assert.equal(a.status,0,a.stdout);
+    const v=a.stdout.trim().split(/\r?\n/).filter(s=>s.startsWith("{")).map(JSON.parse);
+    assert.equal(v[0].slipCount,3);
+    assert.equal(v[1].slipCount,3);
+    assert.equal(v[1].doublePages,1);
+    assert.equal(v.at(-1).result,"PASS");
+    const b=checkCli(dir,[{file:wrongMonth,month:"มกราคม"},{file:wrongYear,month:"มกราคม"}]);
+    assert.equal(b.status,1,b.stdout);
+    const rejected=b.stdout.trim().split(/\r?\n/).filter(s=>s.startsWith("{")).map(JSON.parse);
+    assert.equal(rejected[0].reason,"PRINTED_PERIOD");
+    assert.equal(rejected[1].reason,"PRINTED_PERIOD");
+    assert.equal(rejected.at(-1).failedDocuments,2);
+    for(const secret of [dir,...people.flatMap(p=>[p.name,p.account,p.position])]) {
+      assert.ok(!(a.stdout+a.stderr+b.stdout+b.stderr).includes(secret),"must redact payroll");
+    }
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });

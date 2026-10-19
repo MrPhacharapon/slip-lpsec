@@ -165,7 +165,7 @@ export default function AdminPage() {
         const tokens: PdfToken[] = text.items
           .filter((item): item is typeof item & { str: string; transform: number[] } =>
             "str" in item && "transform" in item)
-          .map(item => ({ str: item.str, y: item.transform[5] }));
+          .map(item => ({ str: item.str, x: item.transform[4], y: item.transform[5] }));
         const pageHeight = page.view[3] - page.view[1];
         const pageWidth = page.view[2] - page.view[0];
         try {
