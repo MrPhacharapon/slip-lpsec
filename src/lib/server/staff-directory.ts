@@ -3,12 +3,12 @@
 // @ts-expect-error - papaparse has no bundled declarations in this project
 import Papa from "papaparse";
 import { readBoundedResponseText } from "./bounded-response";
+import { serverSheetRosterEnabled } from "./roster-config";
 
 export async function lookupStaffDirectory(account: string):
   Promise<{ name: string; position: string } | null> {
   // Prevent isolated environments from reading the production staff roster.
-  if (process.env.STAFF_DIRECTORY_DISABLED === "true" ||
-      process.env.PAYROLL_ROSTER_MODE === "local_csv") return null;
+  if (!serverSheetRosterEnabled()) return null;
   const sheetId = process.env.STAFF_SHEET_ID;
   if (!sheetId) return null;
   if (!/^[A-Za-z0-9_-]{20,100}$/.test(sheetId)) return null;

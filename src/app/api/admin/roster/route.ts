@@ -4,6 +4,7 @@ import Papa from "papaparse";
 import { parseRoster } from "@/lib/slip-validation";
 import { readBoundedResponseText, ResponsePayloadTooLarge } from "@/lib/server/bounded-response";
 import { reply, requireAdmin } from "@/lib/server/route-guards";
+import { serverSheetRosterEnabled } from "@/lib/server/roster-config";
 
 export const dynamic = "force-dynamic";
 
@@ -15,8 +16,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const rejected = requireAdmin(req);
   if (rejected) return rejected;
-  if (process.env.STAFF_DIRECTORY_DISABLED === "true" ||
-      process.env.PAYROLL_ROSTER_MODE === "local_csv") {
+  if (!serverSheetRosterEnabled()) {
     return reply({ error: "ทะเบียนบุคลากรไม่พร้อมใช้งาน" }, 503);
   }
   const sheetId = process.env.STAFF_SHEET_ID;

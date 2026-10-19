@@ -24,6 +24,8 @@ Open the authorized Vercel project `slip-lpsec` → **Settings → Environment V
 | `LINE_CHANNEL_SECRET` | The actual LINE webhook signing secret, server-side only |
 | `LINE_CHANNEL_ACCESS_TOKEN`, `LINE_GROUP_ID` | Already present as Vercel key names; verify correct target and function privately, do not print values |
 
+The new server code also fails closed: Google staff-directory fetches are **disabled by default** and only allowed when `PAYROLL_RELEASE_TARGET=production`, `PAYROLL_ROSTER_MODE=server_sheet` and `STAFF_DIRECTORY_DISABLED=false` are all explicitly present. The isolated Test environment always keeps the directory disabled.
+
 The present inventory found **only four Vercel key names**: LINE access/group and two `NEXT_PUBLIC_SUPABASE_*` fields. Names alone are not proof that any existing value is correct. The `NEXT_PUBLIC_SUPABASE_URL` must match `SUPABASE_URL`; NEVER set a `NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY`.
 
 ## Sheet format and access preconditions
