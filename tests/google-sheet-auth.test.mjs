@@ -29,3 +29,15 @@ test("service account JWT refuses invalid source and never prints secret", () =>
   assert.throws(() => signGoogleSheetsAssertion(
     "operator@synthetic-project.iam.gserviceaccount.com", "invalid-pem", 1800000000));
 });
+
+test("private JWT accepts Vercel-style escaped PEM newlines without exposing them", () => {
+  const { publicKey, privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const pem = privateKey.export({ type: "pkcs8", format: "pem" }).toString();
+  const jwt = signGoogleSheetsAssertion(
+    "fixture@synthetic-project.iam.gserviceaccount.com",
+    pem.replace(/\n/g, "\\n"), 1800000000);
+  const segments = jwt.split(".");
+  assert.equal(segments.length, 3);
+  assert.equal(createVerify("RSA-SHA256").update(segments[0] + "." + segments[1])
+    .verify(publicKey, Buffer.from(segments[2], "base64url")), true);
+});

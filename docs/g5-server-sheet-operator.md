@@ -48,19 +48,19 @@ Expected summary after **private** configuration: `{"result":"PASS","checks":"re
 
 For the final authorized cutover, verify from the secured application through the Admin session that Google Sheets import succeeds, the roster matches expected columns, staff lookup retains name/position, wrong-account and outsider access are denied, and no full CSV/Sheet ID appears in client bundles or logs. Never run these checks against real salary data in a public CI environment.
 
-**Stop conditions:** unset or wrong Sheet ID, Google CSV export denied, unexpected Google Sheet columns, Production/Test Supabase mix-up, incomplete server secrets, exposed `NEXT_PUBLIC_` secrets, or secure Schema/Storage cutover not yet ready. Do not merge/deploy until the separate G6–G8 gates and release authorization are complete. G4 remains **WAIVED** by the operator, with no verified PostgreSQL recovery point.
+**Stop conditions:** unset or wrong Sheet ID, Google OAuth or Sheets API access denied, unexpected Google Sheet columns, Production/Test Supabase mix-up, incomplete server secrets, exposed `NEXT_PUBLIC_` secrets, or secure Schema/Storage cutover not yet ready. Do not merge/deploy until the separate G6–G8 gates and release authorization are complete. G4 remains **WAIVED** by the operator, with no verified PostgreSQL recovery point.
 
 ## Privacy finding verified through Google Drive metadata (19 Oct 2026)
 
 The connected Drive metadata reports the **same old roster Google Spreadsheet** exists with `application/vnd.google-apps.spreadsheet` MIME and `anyone / reader` permission. **No roster rows, identifiers, bank accounts or Sheet ID were exported to PR/CI/chat.** Since the legacy client publicly included the source Sheet URL, anyone-with-link read access creates a meaningful risk of third-party roster disclosure. Metadata alone does not establish who has accessed the file or whether the CSV endpoint is operating.
 
-Do not unilaterally remove public sharing: the currently selected `server_sheet` code uses an unauthenticated Google CSV endpoint and could fail immediately. A future secure solution must keep the **same Google Sheet** as source but use authenticated server-side Google access (such as a dedicated read-only service account granted to the Sheet); only after a fully validated integration and coordinated cutover may the owner disable `anyone` sharing. Setting `STAFF_SHEET_ID` as a secret on Vercel is not sufficient while old frontend code or shared permissions still disclose the roster. No changes to Google Drive sharing have been made.
+Do not unilaterally remove public sharing: the **currently deployed legacy app** uses unauthenticated Google CSV, and would fail if public access were removed now. The replacement branch already requires authenticated Google Sheets API access; it has **not** been deployed. A future secure solution must keep the **same Google Sheet** as source but use authenticated server-side Google access (such as a dedicated read-only service account granted to the Sheet); only after a fully validated integration and coordinated cutover may the owner disable `anyone` sharing. Setting `STAFF_SHEET_ID` as a secret on Vercel is not sufficient while old frontend code or shared permissions still disclose the roster. No changes to Google Drive sharing have been made.
 
-## G5 secure server-to-Sheets setup (prepared in branch, not configured)
+## G5 secure server-to-Sheets setup (branch prepared; credentials pending)
 
 Three **additional Production-only variables** are needed for the private Google Sheets API:
 
-- `STAFF_SHEET_ACCESS_MODE=service_account` (required; anonymous CSV export is **not** a valid Production mode for the secure branch).
+- `STAFF_SHEET_ACCESS_MODE=service_account` (**already set in Vercel Production**, without deployment; anonymous CSV export is **not** a valid mode for the secure branch).
 - `GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`: dedicated service account email; configure Reader sharing for that account on the **existing** roster file.
 - `GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`: sensitive Google service-account private key PEM; Vercel **Sensitive** / server-only; never send to chat, GitHub, client code or any `NEXT_PUBLIC_` field.
 

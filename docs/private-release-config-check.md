@@ -17,6 +17,8 @@
 - `PAYROLL_ROSTER_MODE`: Production **ต้องระบุค่าเองอย่างชัดเจน** เป็น `server_sheet` หรือ `local_csv` ไม่ปล่อยให้ใช้ค่าเริ่มต้นเงียบ ๆ; ผู้ดูแลยืนยันวันที่ 19 ต.ค. 2569 ให้ Production ใช้ **`server_sheet`** เพื่อใช้ Google Sheets เดิมเหมือนระบบก่อนปรับปรุง
 - `STAFF_SHEET_ID`: ต้องระบุเมื่อใช้ `server_sheet` ใน Production; Test และ Production `local_csv` ไม่บังคับ แต่ถ้าระบุยังต้องเป็น ID ที่มีรูปแบบถูกต้อง
 - `STAFF_DIRECTORY_DISABLED`: Production `server_sheet` ต้องระบุค่า **`false`** ชัดเจน (ห้ามเว้นว่าง); Test ต้องเป็น **`true`** เพื่อไม่เชื่อมทะเบียนจริง
+- `STAFF_SHEET_ACCESS_MODE`: Production `server_sheet` ต้องเป็น **`service_account`** สำหรับ Google Sheets API แบบอ่านอย่างเดียว ไม่มี fallback ไป Public CSV
+- `GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL` และ `GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`: ต้องเป็น Service Account ของ Google Cloud ที่ได้รับสิทธิ์ Reader สำหรับ Google Sheets ไฟล์เดิม โดยเก็บ Secret เฉพาะฝั่งเซิร์ฟเวอร์; ห้ามใช้ `NEXT_PUBLIC_`
 
 ## วิธีตรวจโดยไม่เปิดเผย Secret
 
@@ -36,7 +38,7 @@ node scripts/check-private-release-env.mjs
 
 ## ผลตรวจรายการคีย์จาก Vercel (19 ตุลาคม 2569)
 
-อ่านเฉพาะ Metadata ของ Production Environment โดย **ไม่ถอดรหัสค่า** พบเพียง `LINE_GROUP_ID`, `LINE_CHANNEL_ACCESS_TOKEN`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` จึงยังไม่มีหลักฐานการตั้งค่า 7 คีย์ที่จำเป็นตามรายการด้านบน
+ตรวจ Metadata ล่าสุดโดย **ไม่ถอดรหัสค่า** พบ 11 ชื่อ: ตัวแปรเดิม 4 รายการ, ตัวแปร Production-only 6 รายการที่ตั้งไว้ก่อนหน้า และ `STAFF_SHEET_ACCESS_MODE=service_account` เพิ่มอีก 1 รายการ. **ยังไม่พบ** Service Account Email/Private Key, Supabase server service-role key, Admin/Session/Rate-limit secrets, Cron secret และ LINE webhook secret. การมีชื่อคีย์ไม่ได้พิสูจน์ว่าค่าใช้งานได้จริง
 
 **ห้ามตั้งค่าปลอมหรือใช้ Test Credentials แทน Production** เพื่อให้สคริปต์ PASS ผู้ดูแลต้องตั้งค่าผ่านหน้าจอ Vercel/ช่องทาง Secret Manager ที่ได้รับอนุญาตเท่านั้น
 
