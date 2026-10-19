@@ -49,10 +49,14 @@ test("invalid byte caps cannot silently turn protection off", async () => {
 test("both Google Sheets ingestion paths enforce streaming bytes before parsing", () => {
   const directory = readFileSync("src/lib/server/staff-directory.ts", "utf8");
   const admin = readFileSync("src/app/api/admin/roster/route.ts", "utf8");
-  for (const source of [directory, admin]) {
-    assert.match(source, /readBoundedResponseText\(response, 1_000_000\)/);
+  const loader = readFileSync("src/lib/server/google-sheet-source.ts", "utf8");
+  for (const source of [directory, admin, loader]) {
     assert.doesNotMatch(source, /await response\.text\(\)/);
   }
+  assert.match(directory, /loadPrivateStaffSheetRows/);
+  assert.match(admin, /loadPrivateStaffSheetRows/);
+  assert.match(loader, /readBoundedResponseText\(data, 1_000_000\)/);
+  assert.match(loader, /readBoundedResponseText\(auth, 16_384\)/);
   assert.match(admin, /ResponsePayloadTooLarge/);
-  assert.match(directory, /catch \{ return null; \}/);
+  assert.match(directory, /catch \{[\s\S]*?return null;[\s\S]*?\}/);
 });

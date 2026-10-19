@@ -17,7 +17,11 @@ test("admin UI fetches its roster via authorized server, never public browser UR
   assert.match(guard, /PAYROLL_RELEASE_TARGET/);
   assert.match(guard, /PAYROLL_ROSTER_MODE/);
   assert.match(guard, /STAFF_DIRECTORY_DISABLED/);
-  assert.match(api, /process\.env\.STAFF_SHEET_ID/);
+  assert.match(api, /loadPrivateStaffSheetRows/);
+  const loader = get("src/lib/server/google-sheet-source.ts");
+  assert.match(loader, /process\.env\.STAFF_SHEET_ID/);
+  assert.match(loader, /STAFF_SHEET_ACCESS_MODE/);
+  assert.doesNotMatch(loader, /\/export\?format=csv/);
   assert.doesNotMatch(api, /req\.nextUrl\.searchParams/);
 });
 
@@ -31,9 +35,12 @@ test("neither payroll UI uses browser Supabase access", () => {
 
 test("staff directory has no hard-coded Google Sheets identifier fallback", () => {
   const source = get("src/lib/server/staff-directory.ts");
-  assert.match(source, /const sheetId = process\.env\.STAFF_SHEET_ID/);
+  assert.match(source, /loadPrivateStaffSheetRows/);
   assert.match(source, /serverSheetRosterEnabled/);
-  assert.doesNotMatch(source, /const sheetId = process\.env\.STAFF_SHEET_ID\s*\|\|/);
+  const loader = get("src/lib/server/google-sheet-source.ts");
+  assert.match(loader, /const id = process\.env\.STAFF_SHEET_ID/);
+  assert.doesNotMatch(loader, /const id = process\.env\.STAFF_SHEET_ID\s*\|\|/);
+  assert.doesNotMatch(loader, /docs\.google\.com\/spreadsheets/);
 });
 
 test("CI does not supply a public staff roster URL or private payroll key", () => {
