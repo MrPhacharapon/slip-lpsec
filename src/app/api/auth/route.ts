@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readBoundedJson, RequestPayloadTooLarge } from "@/lib/server/bounded-json";
 import { ADMIN_COOKIE, adminCookieOptions, createAdminSession, sameOrigin, verifyAdminPassword, verifyAdminSession } from "@/lib/server/admin-session";
 import { requirePayrollRateLimit } from "@/lib/server/payroll-rate-limit";
+import { verifyPrivateAdminPin } from "@/lib/server/admin-pin-source";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,12 @@ export async function POST(request: NextRequest) {
       error instanceof RequestPayloadTooLarge ? 413 : 400);
   }
   try {
-    if (!verifyAdminPassword(password)) {
+    // Production uses the unchanged three-character PIN in the existing
+    // Google Sheet's Settings tab. ADMIN_PASSWORD remains a TEST-only fixture.
+    const valid = process.env.PAYROLL_RELEASE_TARGET === "production"
+      ? await verifyPrivateAdminPin(password)
+      : verifyAdminPassword(password);
+    if (!valid) {
       return noStore({ success: false, error: "รหัสผ่านไม่ถูกต้อง" }, 401);
     }
     const result = noStore({ success: true });

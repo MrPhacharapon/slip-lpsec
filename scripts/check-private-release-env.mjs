@@ -6,7 +6,6 @@
  */
 const REQUIRED_SECRET_LENGTHS = {
   SUPABASE_SERVICE_ROLE_KEY: 30,
-  ADMIN_PASSWORD: 12,
   ADMIN_SESSION_SECRET: 32,
   PAYROLL_RATE_LIMIT_SECRET: 32,
 };
@@ -23,6 +22,12 @@ function validate(env) {
     if (!env[key] || !env[key].trim()) errors.push(key);
   }
   const stage = env.PAYROLL_RELEASE_TARGET;
+  // ADMIN_PASSWORD is only a synthetic/local Test fixture. Production
+  // authenticates the user's existing short PIN from the private Settings tab.
+  if (stage === "test" &&
+      (!env.ADMIN_PASSWORD || env.ADMIN_PASSWORD.length < 12)) {
+    errors.push("ADMIN_PASSWORD");
+  }
   if (stage === "production") {
     for (const [key, minimum] of Object.entries({
       CRON_SECRET: 32, LINE_CHANNEL_SECRET: 20,
@@ -91,6 +96,7 @@ function validate(env) {
   // Reject even an accidentally duplicated server-only credential.
   const serverOnlyKeys = [
     ...Object.keys(REQUIRED_SECRET_LENGTHS),
+    "ADMIN_PASSWORD",
     "CRON_SECRET", "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN",
     "LINE_GROUP_ID", "STAFF_SHEET_ID",
     "GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL", "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY",
@@ -102,7 +108,7 @@ function validate(env) {
     }
   }
   const secrets = [...Object.keys(REQUIRED_SECRET_LENGTHS),
-    "CRON_SECRET", "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN"]
+    "ADMIN_PASSWORD", "CRON_SECRET", "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN"]
     .map(key => env[key]).filter(Boolean);
   if (new Set(secrets).size !== secrets.length) errors.push("SECRET_REUSE");
   for (const key of ["SUPABASE_SERVICE_ROLE_KEY", "ADMIN_PASSWORD",

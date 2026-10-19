@@ -1,7 +1,7 @@
 import { signGoogleSheetsAssertion } from "./google-sheet-auth";
 import { readBoundedResponseText } from "./bounded-response";
 import { serverSheetRosterEnabled } from "./roster-config";
-import { parsePrivateStaffSheetTitle, parsePrivateStaffSheetRows, parsePrivateSheetsOAuthToken } from "./google-sheet-payload";
+import { parsePrivateStaffSheetTitle, parsePrivateStaffSheetRows, parsePrivateSheetsOAuthToken, parsePrivateAdminSettingsTitle, parsePrivateAdminSettingsPin } from "./google-sheet-payload";
 
 /**
  * Fetch A:D of the legacy gid=0 roster using a private read-only Google
@@ -11,7 +11,7 @@ import { parsePrivateStaffSheetTitle, parsePrivateStaffSheetRows, parsePrivateSh
  *
  * Called only on the server and only with explicit Production opt-in.
  */
-export async function loadPrivateStaffSheetRows(): Promise<string[][]> {
+async function loadPrivateSheetPayload(target: "roster" | "admin_pin"): Promise<unknown> {
   if (!serverSheetRosterEnabled() ||
       process.env.STAFF_SHEET_ACCESS_MODE !== "service_account") {
     throw new Error("Private Google Sheets access is unavailable");
@@ -42,13 +42,28 @@ export async function loadPrivateStaffSheetRows(): Promise<string[][]> {
   });
   if (!details.ok) throw new Error("Private Google Sheet is not accessible");
   const metadata: unknown = JSON.parse(await readBoundedResponseText(details, 100_000));
-  const title = parsePrivateStaffSheetTitle(metadata);
+  const title = target === "roster"
+    ? parsePrivateStaffSheetTitle(metadata)
+    : parsePrivateAdminSettingsTitle(metadata);
   const safeTitle = title.replace(/'/g, "''");
-  const range = encodeURIComponent("'" + safeTitle + "'!A:D");
+  const range = encodeURIComponent(
+    "'" + safeTitle + "'" + (target === "roster" ? "!A:D" : "!A1:B100"),
+  );
   const data = await fetch(origin + "/values/" + range + "?majorDimension=ROWS", {
     headers, cache: "no-store", signal: AbortSignal.timeout(9000),
   });
   if (!data.ok) throw new Error("Private Google Sheet data not readable");
-  const content: unknown = JSON.parse(await readBoundedResponseText(data, 1_000_000));
-  return parsePrivateStaffSheetRows(content);
+  const content: unknown = JSON.parse(await readBoundedResponseText(
+    data, target === "roster" ? 1_000_000 : 16_384,
+  ));
+  return content;
+}
+
+export async function loadPrivateStaffSheetRows(): Promise<string[][]> {
+  return parsePrivateStaffSheetRows(await loadPrivateSheetPayload("roster"));
+}
+
+/** Load only the pre-existing admin PIN on the server; never expose Settings. */
+export async function loadPrivateAdminPin(): Promise<string> {
+  return parsePrivateAdminSettingsPin(await loadPrivateSheetPayload("admin_pin"));
 }

@@ -247,3 +247,20 @@ test("private Google service account credentials never appear in release preflig
   assert.ok(p.missingOrInvalid.includes("NEXT_PUBLIC_GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"));
   assert.ok(!r.stdout.includes("FICTIONAL_PUBLIC_LEAK_TEST"));
 });
+
+test("Production reuses private Google Settings PIN without ADMIN_PASSWORD", () => {
+  const r = check({
+    PAYROLL_RELEASE_TARGET: "production",
+    PAYROLL_ROSTER_MODE: "server_sheet",
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    STAFF_DIRECTORY_DISABLED: "false",
+    ADMIN_PASSWORD: null,
+  });
+  assert.equal(r.status, 0, r.stdout);
+});
+test("Test fixtures still require a non-production admin password", () => {
+  const r = check({ ADMIN_PASSWORD: null });
+  assert.equal(r.status, 1);
+  assert.ok(JSON.parse(r.stdout).missingOrInvalid.includes("ADMIN_PASSWORD"));
+});

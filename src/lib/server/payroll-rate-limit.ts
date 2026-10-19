@@ -10,10 +10,10 @@ type Scope = "search" | "pdf" | "admin_login";
 const POLICY: Record<Scope, { perIp: number; perAccount?: number }> = {
   search: { perIp: 80, perAccount: 20 },
   pdf: { perIp: 80, perAccount: 20 },
-  admin_login: { perIp: 40 },
+  admin_login: { perIp: 40 }, // synthetic Test / legacy 12+ character fixture
 };
 
-function fingerprint(scope: Scope, kind: "ip" | "account", value: string): string {
+function fingerprint(scope: Scope, kind: "ip" | "account" | "global", value: string): string {
   const secret = process.env.PAYROLL_RATE_LIMIT_SECRET;
   if (!secret || secret.length < 32) {
     throw new Error("PAYROLL_RATE_LIMIT_SECRET is not configured securely");
@@ -43,11 +43,20 @@ export async function requirePayrollRateLimit(
   scope: Scope,
   account?: string,
 ): Promise<NextResponse | null> {
-  const limits = POLICY[scope];
+  // PINs with only three characters need a much stricter Production quota
+  // than the test-only long Admin password. Global cap limits distributed guessing
+  // but could be used for denial of service; this is not MFA.
+  const shortPin = scope === "admin_login" &&
+    process.env.PAYROLL_RELEASE_TARGET === "production";
+  const limits = shortPin ? { perIp: 3 } : POLICY[scope];
   try {
     const counters = [
       { key: fingerprint(scope, "ip", requesterAddress(request)), max: limits.perIp },
     ];
+    if (shortPin) {
+      counters.push({ key: fingerprint(scope, "global", "legacy-admin-pin"),
+        max: 10 });
+    }
     if (limits.perAccount && account) {
       counters.push({ key: fingerprint(scope, "account", account), max: limits.perAccount });
     }

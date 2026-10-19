@@ -60,3 +60,48 @@ export function parsePrivateSheetsOAuthToken(payload: unknown): string {
   }
   return token;
 }
+
+/** Find the original admin Settings tab without trusting arbitrary tab names. */
+export function parsePrivateAdminSettingsTitle(payload: unknown): string {
+  const sheets = (payload as { sheets?: unknown } | null)?.sheets;
+  if (!Array.isArray(sheets) || sheets.length > 1_000) {
+    throw new Error("Private admin Settings tab unavailable");
+  }
+  const matches = sheets.filter((tab: unknown) =>
+    tab !== null && typeof tab === "object" &&
+    (tab as SheetTab).properties?.title === "Settings" &&
+    typeof (tab as SheetTab).properties?.sheetId === "number",
+  );
+  if (matches.length !== 1) {
+    throw new Error("Private admin Settings tab unavailable");
+  }
+  return "Settings";
+}
+
+/**
+ * Preserve the legacy Settings layout: label in column A and value in column
+ * B, or (if B is empty) in column A of the immediately following row.
+ * Never print the PIN or the upstream Sheet response.
+ */
+export function parsePrivateAdminSettingsPin(payload: unknown): string {
+  const values = (payload as { values?: unknown } | null)?.values;
+  if (!Array.isArray(values) || values.length < 1 || values.length > 100 ||
+      !values.every(row => Array.isArray(row) && row.length <= 2 &&
+        row.every((cell: unknown) => typeof cell === "string"))) {
+    throw new Error("Private admin Settings format is invalid");
+  }
+  const indexes: number[] = [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i][0]?.trim() === "รหัสผ่านแอดมิน") indexes.push(i);
+  }
+  if (indexes.length !== 1) throw new Error("Private admin PIN setting unavailable");
+  const index = indexes[0];
+  const candidate = values[index][1]?.trim() ||
+    (index + 1 < values.length ? values[index + 1][0]?.trim() : "");
+  if (typeof candidate !== "string" ||
+      [...candidate].length !== 3 ||
+      /[\s\u0000-\u001f\u007f]/u.test(candidate)) {
+    throw new Error("Private admin PIN format is invalid");
+  }
+  return candidate;
+}
