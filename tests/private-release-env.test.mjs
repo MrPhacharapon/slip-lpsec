@@ -11,6 +11,9 @@ const fixture = {
   LINE_GROUP_ID: "FICTIONAL_ONLY_LINE_GROUP_45678901",
   STAFF_DIRECTORY_DISABLED: "true",
   PAYROLL_ROSTER_MODE: "server_sheet",
+  STAFF_SHEET_ACCESS_MODE: "service_account",
+  GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL: "fake-operator@synthetic-project.iam.gserviceaccount.com",
+  GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY: "-----BEGIN PRIVATE KEY-----\\nFICTIONAL_TEST_KEY_NOT_VALID\\n-----END PRIVATE KEY-----",
   SUPABASE_URL: "https://dpaqvxtbpaduknergflm.supabase.co",
   NEXT_PUBLIC_SUPABASE_URL: "https://dpaqvxtbpaduknergflm.supabase.co",
   APP_ORIGIN: "https://private-fixture.example.invalid",
@@ -214,4 +217,33 @@ test("release preflight also rejects an empty server-only NEXT_PUBLIC_ variable"
   assert.equal(result.status, 1);
   assert.ok(JSON.parse(result.stdout).missingOrInvalid
     .includes("NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY"));
+});
+
+test("Production server_sheet blocks anonymous CSV access mode and missing Google service account", () => {
+  const prod = {
+    PAYROLL_RELEASE_TARGET: "production",
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    STAFF_DIRECTORY_DISABLED: "false",
+  };
+  const legacy = check({ ...prod, STAFF_SHEET_ACCESS_MODE: "public_csv" });
+  assert.equal(legacy.status, 1);
+  assert.ok(JSON.parse(legacy.stdout).missingOrInvalid.includes("STAFF_SHEET_ACCESS_MODE"));
+  const missing = check({ ...prod, GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY: null });
+  assert.equal(missing.status, 1);
+  assert.ok(JSON.parse(missing.stdout).missingOrInvalid.includes("GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"));
+});
+
+test("private Google service account credentials never appear in release preflight output", () => {
+  const r = check({
+    PAYROLL_RELEASE_TARGET: "production",
+    SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    NEXT_PUBLIC_SUPABASE_URL: "https://cpwefjcpqykpxdumgogo.supabase.co",
+    STAFF_DIRECTORY_DISABLED: "false",
+    NEXT_PUBLIC_GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY: "FICTIONAL_PUBLIC_LEAK_TEST",
+  });
+  assert.equal(r.status, 1);
+  const p = JSON.parse(r.stdout);
+  assert.ok(p.missingOrInvalid.includes("NEXT_PUBLIC_GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY"));
+  assert.ok(!r.stdout.includes("FICTIONAL_PUBLIC_LEAK_TEST"));
 });

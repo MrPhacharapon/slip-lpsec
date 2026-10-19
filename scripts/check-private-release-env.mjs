@@ -53,6 +53,19 @@ function validate(env) {
       // that the operator intentionally approved live Google Sheets reads.
       if (env.STAFF_DIRECTORY_DISABLED !== "false") errors.push("STAFF_DIRECTORY_DISABLED");
       if (!env.STAFF_SHEET_ID?.trim()) errors.push("STAFF_SHEET_ID");
+      // The legacy source Sheet currently permits anyone-with-link reading.
+      // A Production PASS requires authenticated Google Sheets API access.
+      if (env.STAFF_SHEET_ACCESS_MODE !== "service_account") {
+        errors.push("STAFF_SHEET_ACCESS_MODE");
+      }
+      if (!/^[^@\\s]+@[^@\\s]+\\.iam\\.gserviceaccount\\.com$/.test(
+        env.GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL || ""
+      )) errors.push("GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL");
+      if (!env.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY?.includes(
+        "-----BEGIN PRIVATE KEY-----"
+      ) || !env.GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY?.includes(
+        "-----END PRIVATE KEY-----"
+      )) errors.push("GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY");
     }
   }
   if (!["production", "test"].includes(stage)) errors.push("PAYROLL_RELEASE_TARGET");
@@ -80,6 +93,7 @@ function validate(env) {
     ...Object.keys(REQUIRED_SECRET_LENGTHS),
     "CRON_SECRET", "LINE_CHANNEL_SECRET", "LINE_CHANNEL_ACCESS_TOKEN",
     "LINE_GROUP_ID", "STAFF_SHEET_ID",
+    "GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL", "GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY",
   ];
   for (const key of serverOnlyKeys) {
     const publicName = "NEXT_PUBLIC_" + key;
