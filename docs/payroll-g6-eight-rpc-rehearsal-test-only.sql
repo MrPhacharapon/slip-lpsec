@@ -19,9 +19,10 @@ BEGIN
      (SELECT public FROM storage.buckets WHERE id='slips') IS DISTINCT FROM false
   THEN RAISE EXCEPTION 'Isolated Test sandbox is not empty or private'; END IF;
 
-  IF public.check_payroll_rate_limit(v_hash,600,1) IS DISTINCT FROM true OR
-     public.check_payroll_rate_limit(v_hash,600,1) IS DISTINCT FROM false
-  THEN RAISE EXCEPTION 'Rate limit not enforced'; END IF;
+  IF public.check_payroll_rate_limit(v_hash,600,1) IS DISTINCT FROM true
+  THEN RAISE EXCEPTION 'First rate-limit request rejected'; END IF;
+  IF public.check_payroll_rate_limit(v_hash,600,1) IS DISTINCT FROM false
+  THEN RAISE EXCEPTION 'Second rate-limit request not blocked'; END IF;
 
   SELECT public.stage_payroll_slips('พฤศจิกายน','2569',
     jsonb_build_array(jsonb_build_object(
@@ -56,8 +57,8 @@ BEGIN
       'name','SYNTHETIC PAYROLL ONLY','bank_account','0000000000',
       'month','ธันวาคม','year','2569','pdf_base64',repeat('B',120)
     ))) INTO v_inserted;
-  IF v_inserted<>1 OR
-     public.publish_payroll_period('ธันวาคม','2569','SYNTHETIC-ONLY.pdf',1)
+  IF v_inserted<>1 THEN RAISE EXCEPTION 'Second stage failed'; END IF;
+  IF public.publish_payroll_period('ธันวาคม','2569','SYNTHETIC-ONLY.pdf',1)
        IS DISTINCT FROM true
   THEN RAISE EXCEPTION 'Publish failed'; END IF;
 
@@ -71,8 +72,9 @@ BEGIN
   THEN RAISE EXCEPTION 'Published state missing'; END IF;
 
   IF public.reorder_payroll_history(ARRAY[v_history_id::text])
-       IS DISTINCT FROM true OR
-     NOT EXISTS(SELECT 1 FROM public.upload_history WHERE id=v_history_id
+       IS DISTINCT FROM true
+  THEN RAISE EXCEPTION 'Reorder RPC failed'; END IF;
+  IF NOT EXISTS(SELECT 1 FROM public.upload_history WHERE id=v_history_id
        AND created_at=v_created AND display_order=0)
   THEN RAISE EXCEPTION 'Reorder altered history timestamp'; END IF;
 
@@ -94,9 +96,10 @@ BEGIN
   THEN RAISE EXCEPTION 'Stale published snapshot did not fail closed'; END IF;
 
   IF public.delete_published_payroll_period(
-    v_history_id,'ธันวาคม','2569',1,v_preview->>'snapshot')<>1 OR
-    (SELECT count(*) FROM public.slips)<>0 OR
-    (SELECT count(*) FROM public.upload_history)<>0
-  THEN RAISE EXCEPTION 'Published cleanup failed'; END IF;
+    v_history_id,'ธันวาคม','2569',1,v_preview->>'snapshot')<>1
+  THEN RAISE EXCEPTION 'Published cleanup RPC failed'; END IF;
+  IF (SELECT count(*) FROM public.slips)<>0 OR
+     (SELECT count(*) FROM public.upload_history)<>0
+  THEN RAISE EXCEPTION 'Published cleanup left rows'; END IF;
 END $$;
 ROLLBACK;
