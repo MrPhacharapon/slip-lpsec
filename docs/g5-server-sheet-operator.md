@@ -65,3 +65,7 @@ Three **additional Production-only variables** are needed for the private Google
 - `GOOGLE_SHEETS_SERVICE_ACCOUNT_PRIVATE_KEY`: sensitive Google service-account private key PEM; Vercel **Sensitive** / server-only; never send to chat, GitHub, client code or any `NEXT_PUBLIC_` field.
 
 Google Cloud project owner must enable the Sheets API and create/authorize the key privately. This chat cannot create or retrieve that credential. Do not delete or rotate other existing credentials to make the checker pass. `scripts/check-private-release-env.mjs` checks configuration format but cannot prove Google API rights. The app's Google token exchange and API request path must be tested in an isolated authorized deployment before changing sharing permissions. A staged failure must not reveal upstream Google errors or raw Sheet contents.
+
+## G5 OAuth response fail-closed regression (19 October 2026)
+
+Feature Branch now validates the Google OAuth token response before requesting roster metadata: a Bearer token must be a usable bounded string, have a positive integer expiry, and (when an OAuth `scope` field is supplied) include `spreadsheets.readonly`. Malformed responses are rejected using generic errors without echoing sensitive values. Added synthetic offline tests; **not** evidence of authenticated connectivity to the real roster. Confirm the real Service Account integration privately before the authorized production cutover.

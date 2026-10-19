@@ -1,7 +1,7 @@
 import { signGoogleSheetsAssertion } from "./google-sheet-auth";
 import { readBoundedResponseText } from "./bounded-response";
 import { serverSheetRosterEnabled } from "./roster-config";
-import { parsePrivateStaffSheetTitle, parsePrivateStaffSheetRows } from "./google-sheet-payload";
+import { parsePrivateStaffSheetTitle, parsePrivateStaffSheetRows, parsePrivateSheetsOAuthToken } from "./google-sheet-payload";
 
 /**
  * Fetch A:D of the legacy gid=0 roster using a private read-only Google
@@ -34,11 +34,7 @@ export async function loadPrivateStaffSheetRows(): Promise<string[][]> {
   });
   if (!auth.ok) throw new Error("Private Google Sheets authorization failed");
   const tokenPayload: unknown = JSON.parse(await readBoundedResponseText(auth, 16_384));
-  const accessToken = (tokenPayload as { access_token?: unknown } | null)?.access_token;
-  if (typeof accessToken !== "string" || accessToken.length < 20 ||
-      accessToken.length > 8_000) {
-    throw new Error("Private Google Sheets authorization failed");
-  }
+  const accessToken = parsePrivateSheetsOAuthToken(tokenPayload);
   const headers = { Authorization: "Bearer " + accessToken };
   const origin = "https://sheets.googleapis.com/v4/spreadsheets/" + id;
   const details = await fetch(origin + "?fields=sheets(properties(sheetId,title))", {

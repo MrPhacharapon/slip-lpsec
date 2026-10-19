@@ -34,3 +34,29 @@ export function parsePrivateStaffSheetRows(payload: unknown): string[][] {
   }
   return values as string[][];
 }
+
+
+/**
+ * Accept only a usable Google OAuth Bearer token for this single read-only
+ * request. Never return upstream error bodies, token values or scopes in errors.
+ */
+export function parsePrivateSheetsOAuthToken(payload: unknown): string {
+  const body = payload as {
+    access_token?: unknown; token_type?: unknown;
+    expires_in?: unknown; scope?: unknown;
+  } | null;
+  const token = body?.access_token;
+  const duration = body?.expires_in;
+  const scope = body?.scope;
+  if (typeof token !== "string" || token.length < 20 ||
+      token.length > 8_000 || /[\s\u0000-\u001f\u007f]/.test(token) ||
+      body?.token_type !== "Bearer" ||
+      typeof duration !== "number" || !Number.isInteger(duration) ||
+      duration < 30 || duration > 86_400 ||
+      (scope !== undefined &&
+        (typeof scope !== "string" ||
+          !scope.split(/\s+/).includes("https://www.googleapis.com/auth/spreadsheets.readonly")))) {
+    throw new Error("Private Google Sheets authorization failed");
+  }
+  return token;
+}
