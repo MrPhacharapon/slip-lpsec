@@ -16,3 +16,16 @@ test("legacy schema audit is a privacy-preserving read-only inspection", () => {
   assert.doesNotMatch(withoutComments,/\bSELECT\s+(?:\*|name|bank_account|pdf_base64|storage_path)\s+FROM\b/i);
   assert.doesNotMatch(withoutComments,/https?:\/\/|SUPABASE_SERVICE_ROLE_KEY/);
 });
+
+test("G6/G7 release integrity SQL is read-only and does not reveal source payroll fields", () => {
+  const sql=readFileSync("docs/payroll-release-data-integrity-readonly.sql","utf8");
+  const stripped=sql.split("\n").filter(line=>!line.trim().startsWith("--")).join("\n");
+  assert.match(stripped,/^WITH\s+slip_periods\s+AS\s*\(/i);
+  for (const field of ["staged_slips","histories_without_slips","storage_unreferenced",
+      "history_paths_missing_objects","unreferenced_declared_bytes"]) {
+    assert.ok(stripped.includes(field));
+  }
+  assert.doesNotMatch(stripped,/\b(?:INSERT\s+INTO|DELETE\s+FROM|TRUNCATE|ALTER\s+TABLE|DROP\s+TABLE|CREATE\s+TABLE|UPDATE\s+public\.|GRANT|REVOKE)\b/i);
+  assert.doesNotMatch(stripped,/\bSELECT\s+(?:\*|name|bank_account|pdf_base64|storage_path)\s+FROM\b/i);
+  assert.doesNotMatch(stripped,/SUPABASE_SERVICE_ROLE_KEY|https?:\/\//);
+});

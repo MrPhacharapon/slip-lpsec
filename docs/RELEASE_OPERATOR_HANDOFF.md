@@ -53,3 +53,7 @@ The production aggregate shows 12 objects and 9 history references, zero danglin
 ## Operator stop conditions
 
 Stop and request explicit approval for: any Production SQL write, RLS/GRANT/policy/bucket change, merge/deploy, deletion, broad data export, or a new cost. Do not log source payroll data or secrets. Preserve Draft PR and Production NO-GO until G5–G8 decision gates are met. Rollback must never restore public payroll table grants or a public Storage bucket merely to revive legacy UI.
+
+## Google Sheets privacy gate — metadata-only check (19 Oct)
+
+Connected Google Drive **metadata** confirms the same legacy source Sheet permits `anyone / reader` sharing. The legacy client embeds the Sheet URL. New server-only `STAFF_SHEET_ID` protects it from new browser bundles but does not revoke the existing public permission. Do not disable public sharing until an authenticated alternative is rehearsed; `server_sheet` must stay the selected source. G5 is **PARTIAL / PRIVACY BLOCKED**, separate from missing server secrets. See [G5 operator guide](./g5-server-sheet-operator.md). This read accessed **no personnel records**.
