@@ -1,13 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Lock, UploadCloud, Settings, FileText, CheckCircle2, History, Trash2, GripVertical, Eye } from "lucide-react";
+import { UploadCloud, Settings, FileText, CheckCircle2, History, Trash2, GripVertical, Eye } from "lucide-react";
 import { PDFDocument } from 'pdf-lib';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-// @ts-ignore
-import Papa from 'papaparse';
-import { supabase } from '@/lib/supabase';
+import type { DropResult } from '@hello-pangea/dnd';
+// @ts-expect-error - papaparse has no bundled declarations in this project
+import Papa from "papaparse";
+import { parseRoster, identifyPageSlips, assertUniquePeriod, assertSlipDocumentLayout, validateSlipPageLayout, assertSlipPagePeriod } from "@/lib/slip-validation";
+import { ensurePdfJsMapCompatibility } from "@/lib/pdfjs-compat";
+import type { PdfToken, RosterPerson, PageRegion } from "@/lib/slip-validation";
+
 
 const MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
@@ -15,12 +19,20 @@ const MONTHS = [
 ];
 const YEARS = ["2569", "2568", "2567"];
 
+type StagedReview = {
+  month: string;
+  year: string;
+  published: boolean;
+  stagedCount: number;
+  snapshot: string | null;
+};
+
 type HistoryItem = {
   id: string;
   month: string;
   year: string;
   file_name: string;
-  storage_path: string;
+  storage_path: string | null;
   created_at: string;
 };
 
@@ -28,40 +40,42 @@ export default function AdminPage() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const router = useRouter();
 
-  const [sheetUrl, setSheetUrl] = useState("https://docs.google.com/spreadsheets/d/1warnAj4x4d7lZecJ3vApaGltSxx1Ji_wv2CkOhcF0nI/edit?gid=0#gid=0");
   const [selectedMonth, setSelectedMonth] = useState("มกราคม");
   const [selectedYear, setSelectedYear] = useState("2569");
   const [file, setFile] = useState<File | null>(null);
+  const [rosterCsvFile, setRosterCsvFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
   const [notifyLine, setNotifyLine] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
 
   const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
+  const [stagedReview, setStagedReview] = useState<StagedReview | null>(null);
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
+
+  const fetchHistory = useCallback(async () => {
+    const response = await fetch("/api/admin/history", { cache: "no-store" });
+    if (!response.ok) throw new Error("โหลดประวัติไม่สำเร็จ");
+    const { history } = await response.json();
+    setHistoryItems(history);
+  }, []);
 
   useEffect(() => {
-    const auth = sessionStorage.getItem("adminAuth");
-    if (auth !== "true") {
-      router.push("/");
-    } else {
-      setIsMounted(true);
-      setIsAuthenticated(true);
-      fetchHistory();
-    }
-  }, [router]);
+    let active = true;
+    fetch("/api/auth", { cache: "no-store" })
+      .then(r => r.json())
+      .then(v => {
+        if (!active) return;
+        if (!v.authenticated) { setIsAuthenticated(false); router.push("/"); return; }
+        setIsMounted(true); setIsAuthenticated(true);
+        void fetchHistory().catch(() => {
+          if (active) alert("ไม่สามารถโหลดประวัติสลิปได้ กรุณารีเฟรชหน้าจอแล้วตรวจสอบอีกครั้ง");
+        });
+      }).catch(() => { if (active) { setIsAuthenticated(false); router.push("/"); } });
+    return () => { active = false; };
+  }, [router, fetchHistory]);
 
-  const fetchHistory = async () => {
-    const { data, error } = await supabase
-      .from('upload_history')
-      .select('*')
-      .order('created_at', { ascending: false });
-    
-    if (data && !error) {
-      setHistoryItems(data);
-    }
-  };
-
-  const handleDragEnd = (result: any) => {
+  const handleDragEnd = (result: DropResult) => {
     if (!result.destination) return;
     
     const startIndex = result.source.index;
@@ -75,296 +89,345 @@ export default function AdminPage() {
     newItems.splice(endIndex, 0, removed);
     setHistoryItems(newItems);
 
-    // 2. Update Supabase to permanently save the new order
-    // By resetting created_at, we maintain the "ORDER BY created_at DESC" sorting
-    const now = Date.now();
-    Promise.all(newItems.map((item, i) => {
-      const newTime = new Date(now - i * 1000).toISOString();
-      return supabase.from('upload_history').update({ created_at: newTime }).match({ id: item.id });
-    })).catch(err => console.error("Reorder DB error:", err));
+    fetch("/api/admin/history", {
+      method: "PATCH", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: newItems.map(item => item.id) }),
+    }).then(r => { if (!r.ok) throw new Error("ไม่สามารถจัดเรียงได้"); })
+      .catch(() => { void fetchHistory().catch(() => alert("โหลดประวัติไม่สำเร็จ")); });
   };
 
   const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
-
+    if (!file || isUploading) return;
     setIsUploading(true);
     setUploadSuccess(false);
-
     try {
-      // 1. Fetch Google Sheet CSV
-      const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-      if (!match) {
-        alert("ลิงก์ Google Sheet ไม่ถูกต้อง");
-        setIsUploading(false);
-        return;
-      }
-      const sheetId = match[1];
-      const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=0`;
-      
-      const res = await fetch(csvUrl);
-      if (!res.ok) {
-        alert("ไม่สามารถอ่านข้อมูล Google Sheet ได้ โปรดตรวจสอบการแชร์ไฟล์");
-        setIsUploading(false);
-        return;
-      }
-      const csvText = await res.text();
-      const parsed = Papa.parse<string[]>(csvText, { skipEmptyLines: true });
-      const accounts = parsed.data;
-      
-      // 2. Read PDF for splitting (pdf-lib)
-      const arrayBuffer = await file.arrayBuffer();
-      const pdfDoc = await PDFDocument.load(arrayBuffer.slice(0));
-      const pages = pdfDoc.getPages();
-      
-      if (pages.length === 0) {
-        alert("ไม่พบหน้าในไฟล์ PDF");
-        setIsUploading(false);
-        return;
-      }
-
-      // 3. Read PDF for text extraction (pdfjs-dist)
-      let pdfjsDoc: any = null;
-      let pdfjsLib: any = null;
-      try {
-        pdfjsLib = await import('pdfjs-dist');
-        if (pdfjsLib?.GlobalWorkerOptions) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+      // Roster is fetched only through the authenticated Next.js server.
+      // The private Google Sheet ID must never be exposed to public browsers.
+      let roster: RosterPerson[];
+      if (rosterCsvFile) {
+        // Private local CSV never leaves the Admin's browser. Only the
+        // resulting image-only slips are sent through the staging API.
+        if (!rosterCsvFile.name.toLowerCase().endsWith(".csv") ||
+            rosterCsvFile.size < 10 || rosterCsvFile.size > 1_000_000) {
+          throw new Error("ไฟล์ทะเบียน CSV ไม่ถูกต้องหรือใหญ่เกินกำหนด");
         }
-        pdfjsDoc = await pdfjsLib.getDocument({ data: arrayBuffer.slice(0) }).promise;
-      } catch (err) {
-        console.warn("Could not parse PDF for text extraction. Falling back to sequential mode.", err);
+        const csv = (await rosterCsvFile.text()).replace(/^\uFEFF/, "");
+        roster = parseRoster(Papa.parse<string[]>(csv, { skipEmptyLines: true }).data);
+      } else {
+        const response = await fetch("/api/admin/roster", { cache: "no-store" });
+        if (!response.ok) throw new Error("อ่านทะเบียนบุคลากรไม่ได้ กรุณาตรวจการตั้งค่าเซิร์ฟเวอร์");
+        const value = await response.json() as { roster: RosterPerson[] };
+        roster = value.roster;
       }
-      
-      // Clean previous slips for this month and year to prevent duplicates
-      await supabase
-        .from('slips')
-        .delete()
-        .match({ month: selectedMonth, year: selectedYear });
-
-      // 4. Match PDF pages/sections to accounts and save to Supabase
-      let startIndex = 0;
-      if (accounts.length > 0) {
-        const headerRowStr = accounts[0].join(' ');
-        if (headerRowStr.includes('บัญชี') || headerRowStr.includes('ชื่อ')) {
-          startIndex = 1;
-        }
+      if (!Array.isArray(roster) || roster.length === 0) {
+        throw new Error("ไม่พบทะเบียนบุคลากรที่ผ่านการตรวจสอบ");
       }
 
-      let fallbackIndex = 0;
-
-      for (let i = 0; i < pages.length; i++) {
-        const originalPage = pages[i];
-        const { width, height } = originalPage.getSize();
-        const halfHeight = height / 2;
-
-        let pageSections: Array<{
-          account: string | null;
-          name: string | null;
-          crop: [number, number, number, number] | null;
-        }> = [];
-
-        if (pdfjsDoc) {
-          try {
-            const page = await pdfjsDoc.getPage(i + 1);
-            const textContent = await page.getTextContent();
-            
-            // Check if page contains 2 slips (top half vs bottom half)
-            const topItems: string[] = [];
-            const bottomItems: string[] = [];
-
-            for (const item of textContent.items as any[]) {
-              const y = item.transform ? item.transform[5] : 0;
-              if (y >= halfHeight) {
-                topItems.push(item.str);
-              } else {
-                bottomItems.push(item.str);
-              }
-            }
-
-            const topText = topItems.join(' ');
-            const bottomText = bottomItems.join(' ');
-
-            const topAccMatch = topText.match(/\b\d{10}\b/);
-            const bottomAccMatch = bottomText.match(/\b\d{10}\b/);
-
-            const hasTwoSlips = !!(topAccMatch && bottomAccMatch);
-
-            if (hasTwoSlips) {
-              pageSections = [
-                {
-                  account: topAccMatch[0],
-                  name: null,
-                  crop: [0, halfHeight, width, halfHeight]
-                },
-                {
-                  account: bottomAccMatch[0],
-                  name: null,
-                  crop: [0, 0, width, halfHeight]
-                }
-              ];
-            } else if (topAccMatch) {
-              pageSections = [
-                {
-                  account: topAccMatch[0],
-                  name: null,
-                  crop: [0, halfHeight, width, halfHeight]
-                }
-              ];
-            } else if (bottomAccMatch) {
-              pageSections = [
-                {
-                  account: bottomAccMatch[0],
-                  name: null,
-                  crop: [0, 0, width, halfHeight]
-                }
-              ];
-            } else {
-              const fullText = (textContent.items as any[]).map((it: any) => it.str).join(' ');
-              const fullMatch = fullText.match(/\b\d{10}\b/);
-              if (fullMatch) {
-                pageSections = [
-                  {
-                    account: fullMatch[0],
-                    name: null,
-                    crop: null
-                  }
-                ];
-              }
-            }
-          } catch (err) {
-            console.warn(`Error extracting text on page ${i + 1}`, err);
-          }
-        }
-
-        // Fallback: If no sections detected via OCR, fallback to 1 whole page
-        if (pageSections.length === 0) {
-          pageSections = [{ account: null, name: null, crop: null }];
-        }
-
-        for (const sec of pageSections) {
-          let matchedRow = null;
-
-          if (sec.account) {
-            matchedRow = accounts.find((r: string[]) => r[2] && String(r[2]).trim() === sec.account);
-          }
-
-          if (!matchedRow) {
-            matchedRow = accounts[startIndex + fallbackIndex];
-            fallbackIndex++;
-          }
-
-          if (!matchedRow && !sec.account) continue;
-
-          const name = matchedRow ? matchedRow[0] : (sec.name || "เจ้าหน้าที่");
-          const bankAccount = sec.account || (matchedRow ? String(matchedRow[2]).trim() : "");
-          if (!bankAccount) continue;
-
-          const newPdf = await PDFDocument.create();
-          const [copiedPage] = await newPdf.copyPages(pdfDoc, [i]);
-          if (sec.crop) {
-            copiedPage.setCropBox(sec.crop[0], sec.crop[1], sec.crop[2], sec.crop[3]);
-            copiedPage.setMediaBox(sec.crop[0], sec.crop[1], sec.crop[2], sec.crop[3]);
-          }
-          newPdf.addPage(copiedPage);
-          const newPdfBase64 = await newPdf.saveAsBase64({ dataUri: false });
-
-          // Save slip to Supabase
-          await supabase.from('slips').insert({
-            name: name,
-            bank_account: bankAccount,
-            month: selectedMonth,
-            year: selectedYear,
-            pdf_base64: newPdfBase64
-          });
-
-          await new Promise(resolve => setTimeout(resolve, 50));
-        }
+      if (file.type !== "application/pdf" || !file.name.toLowerCase().endsWith(".pdf")) {
+        throw new Error("รองรับเฉพาะไฟล์ PDF");
       }
+      const buffer = await file.arrayBuffer();
+      ensurePdfJsMapCompatibility();
+      const pdfjs = await import("pdfjs-dist");
+      pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.compat.mjs";
+      const doc = await pdfjs.getDocument({ data: buffer.slice(0) }).promise;
+      if (!doc.numPages || doc.numPages > 500) throw new Error("จำนวนหน้า PDF ไม่ถูกต้องหรือมากเกินกำหนด");
 
-      // 4. Upload the combined 8MB PDF to Supabase Storage (Using safe filename without Thai characters)
-      const safeFileName = `slip_backup_${Date.now()}.pdf`;
-      const { error: storageError } = await supabase.storage
-        .from('slips')
-        .upload(safeFileName, file);
-
-      if (storageError) {
-        console.error("Storage error:", storageError);
-        alert("คำเตือน: อัปโหลดสลิปสำเร็จ แต่ไม่สามารถสำรองไฟล์ต้นฉบับก้อนใหญ่ลง Storage ได้ (อาจตั้งค่า Policy ไม่ถูกต้อง)");
-      }
-
-      // 5. Save History
-      const { error: historyError } = await supabase.from('upload_history').insert({
-        month: selectedMonth,
-        year: selectedYear,
-        file_name: file.name,
-        storage_path: safeFileName
+      // Read-only preflight: never delete old payroll records to replace a month.
+      const preflight = await fetch("/api/admin/preflight", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: selectedMonth, year: selectedYear }),
       });
-
-      if (historyError) {
-        console.error("History error:", historyError);
+      if (!preflight.ok) throw new Error("ไม่สามารถตรวจรายการเดิมได้");
+      const priorState = await preflight.json() as {
+        clear: boolean; published: boolean; stagedCount: number; truncated?: boolean;
+      };
+      if (!priorState.clear) {
+        if (priorState.published)
+          throw new Error("เดือนนี้เผยแพร่แล้ว: ไม่อนุญาตให้อัปโหลดซ้ำหรือเขียนทับข้อมูล");
+        if (priorState.stagedCount > 0)
+          throw new Error("พบสลิปที่อัปโหลดค้าง " +
+            (priorState.truncated ? "มากกว่า 500" : String(priorState.stagedCount)) +
+            " รายการ แต่ยังไม่ได้เผยแพร่ กรุณาให้ผู้ดูแลตรวจสอบและคืนสภาพก่อนอัปโหลดซ้ำ ห้ามลบหรือเขียนทับโดยอัตโนมัติ");
+        throw new Error("เดือนนี้มีข้อมูลผิดปกติ กรุณาตรวจสอบก่อนอัปโหลด");
       }
 
+      type Candidate = { pageIndex: number; person: RosterPerson; region: PageRegion };
+      const mapped: Candidate[] = [];
+      const layouts: Array<"single" | "double"> = [];
+      for (let pageIndex = 0; pageIndex < doc.numPages; pageIndex++) {
+        const page = await doc.getPage(pageIndex + 1);
+        if (page.rotate % 360 !== 0 || page.view[1] !== 0) {
+          throw new Error("พบหน้าหมุนหรือมีตำแหน่งเริ่มต้นผิดปกติ: หน้า " + (pageIndex + 1));
+        }
+        const text = await page.getTextContent();
+        const tokens: PdfToken[] = text.items
+          .filter((item): item is typeof item & { str: string; transform: number[] } =>
+            "str" in item && "transform" in item)
+          .map(item => ({ str: item.str, x: item.transform[4], y: item.transform[5] }));
+        const pageHeight = page.view[3] - page.view[1];
+        const pageWidth = page.view[2] - page.view[0];
+        try {
+          const layout = validateSlipPageLayout(
+            tokens, pageWidth, pageHeight
+          );
+          assertSlipPagePeriod(tokens, pageHeight, layout, selectedMonth, selectedYear);
+          const identified = identifyPageSlips(tokens, pageHeight, roster);
+          if ((layout === "single" && (
+              identified.length !== 1 || identified[0].region !== "full"
+            )) ||
+            (layout === "double" && (
+              identified.length !== 2 ||
+              identified[0].region !== "top" ||
+              identified[1].region !== "bottom"
+            ))) {
+            throw new Error("จำนวนสลิปที่จับคู่ได้ไม่ตรงกับโครงสร้างหน้าของ PDF");
+          }
+          layouts.push(layout);
+          mapped.push(...identified.map(({ person, region }) =>
+            ({ pageIndex, person, region })));
+        } catch (error) {
+          throw new Error("หน้า " + (pageIndex + 1) + ": " +
+            (error instanceof Error ? error.message : "อ่านเลขบัญชีไม่สำเร็จ"));
+        }
+      }
+      assertSlipDocumentLayout(layouts);
+      assertUniquePeriod(mapped);
+
+      // Render selected regions into fresh raster PDFs; never retain hidden
+      // text/resources from the other person's half of the source PDF.
+      const rows: Array<{
+        name: string; bank_account: string; month: string; year: string; pdf_base64: string;
+      }> = [];
+      for (let pageIndex = 0; pageIndex < doc.numPages; pageIndex++) {
+        const page = await doc.getPage(pageIndex + 1);
+        const view = page.getViewport({ scale: 2.5 });
+        if (view.width * view.height > 12000000) {
+          throw new Error("PDF หน้า " + (pageIndex + 1) + " มีขนาดใหญ่เกินกำหนด");
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.ceil(view.width);
+        canvas.height = Math.ceil(view.height);
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("ไม่สามารถเตรียมภาพ PDF ได้");
+        await page.render({ canvasContext: ctx, canvas, viewport: view }).promise;
+        for (const entry of mapped.filter(e => e.pageIndex === pageIndex)) {
+          const mid = Math.floor(canvas.height / 2);
+          const sourceY = entry.region === "bottom" ? mid : 0;
+          const targetHeight = entry.region === "full" ? canvas.height :
+            entry.region === "top" ? mid : canvas.height - mid;
+          const sliced = document.createElement("canvas");
+          sliced.width = canvas.width;
+          sliced.height = targetHeight;
+          const slicedCtx = sliced.getContext("2d");
+          if (!slicedCtx) throw new Error("ไม่สามารถตัดแบ่งภาพ PDF ได้");
+          slicedCtx.fillStyle = "#ffffff";
+          slicedCtx.fillRect(0, 0, sliced.width, sliced.height);
+          slicedCtx.drawImage(canvas, 0, sourceY, canvas.width, targetHeight,
+            0, 0, sliced.width, targetHeight);
+          const jpeg = await new Promise<Blob>((resolve, reject) =>
+            sliced.toBlob(b => b ? resolve(b) : reject(new Error("สร้างไฟล์ภาพไม่สำเร็จ")),
+              "image/jpeg", 0.96));
+          const safePdf = await PDFDocument.create();
+          const jpg = await safePdf.embedJpg(new Uint8Array(await jpeg.arrayBuffer()));
+          const destination = safePdf.addPage([sliced.width / 2.5, sliced.height / 2.5]);
+          destination.drawImage(jpg, { x: 0, y: 0,
+            width: destination.getWidth(), height: destination.getHeight() });
+          rows.push({ name: entry.person.name, bank_account: entry.person.bankAccount,
+            month: selectedMonth, year: selectedYear,
+            pdf_base64: await safePdf.saveAsBase64({ dataUri: false }) });
+          sliced.width = 0; sliced.height = 0;
+        }
+        canvas.width = 0; canvas.height = 0;
+      }
+      if (rows.length !== mapped.length || !rows.length) {
+        throw new Error("จำนวนสลิปที่ตรวจและจำนวนไฟล์ที่สร้างไม่ตรงกัน");
+      }
+      if (!window.confirm("ตรวจสอบผ่าน " + rows.length + " รายการจาก " + doc.numPages +
+          " หน้า\nบันทึกเฉพาะเดือนใหม่ (ไม่เขียนทับรายการเดิม) หรือไม่?")) return;
+
+      // Stage small batches through an authenticated server route. Until
+      // finalize inserts upload_history, staff searches cannot see the period.
+      let pending: typeof rows = [];
+      const flush = async () => {
+        if (!pending.length) return;
+        const response = await fetch("/api/admin/slips", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: pending }), cache: "no-store",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok)
+          throw new Error(data?.error || "บันทึกสลิปบางส่วนไม่สำเร็จ กรุณาติดต่อผู้ดูแล ห้ามอัปโหลดซ้ำ");
+        // A 200 status without the exact acknowledged insert count is not
+        // proof that staging succeeded; stop before publishing the period.
+        if (data?.success !== true || data?.inserted !== pending.length)
+          throw new Error("ไม่สามารถยืนยันจำนวนสลิปที่บันทึกได้ กรุณาตรวจสถานะก่อนอัปโหลดซ้ำ");
+        pending = [];
+      };
+      for (const row of rows) {
+        if (pending.length && JSON.stringify({ rows: [...pending, row] }).length > 1_500_000)
+          await flush();
+        if (JSON.stringify({ rows: [row] }).length > 1_500_000)
+          throw new Error("ไฟล์สลิปรายบุคคลใหญ่เกินกำหนด");
+        pending.push(row);
+        if (pending.length >= 8) await flush();
+      }
+      await flush();
+      const finished = await fetch("/api/admin/finalize", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: selectedMonth, year: selectedYear,
+          fileName: file.name, expectedCount: rows.length }), cache: "no-store",
+      });
+      const finalResult = await finished.json().catch(() => null);
+      if (!finished.ok || finalResult?.success !== true)
+        throw new Error("ไม่สามารถยืนยันการเผยแพร่ โปรดตรวจสอบสถานะข้อมูลก่อนดำเนินการต่อ");
+      // Publishing already committed on the server. A later history-read
+      // failure must not be reported as an upload failure or suggest retrying.
+      setUploadSuccess(true);
+      setFile(null);
+      try {
+        await fetchHistory();
+      } catch {
+        alert("เผยแพร่สลิปสำเร็จแล้ว แต่โหลดประวัติไม่สำเร็จ กรุณารีเฟรชหน้าจอเพื่อตรวจสอบ ห้ามอัปโหลดซ้ำ");
+      }
+      // LINE is a post-publication side effect only. A notification error
+      // cannot undo an already committed payroll period or invite re-upload.
       if (notifyLine) {
         try {
-          await fetch('/api/send-line', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ month: selectedMonth, year: selectedYear })
+          const notified = await fetch("/api/send-line", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ month: selectedMonth, year: selectedYear }),
+            cache: "no-store",
           });
-        } catch (e) {
-          console.error("Failed to trigger LINE notification", e);
+          const result = await notified.json().catch(() => null);
+          if (!notified.ok || result?.success !== true) {
+            throw new Error("LINE notification not acknowledged");
+          }
+        } catch {
+          alert("เผยแพร่สลิปสำเร็จแล้ว แต่ส่งแจ้งเตือน LINE ไม่สำเร็จ กรุณาตรวจสอบการแจ้งเตือนแยกต่างหาก ห้ามอัปโหลดซ้ำ");
         }
       }
-
-      setUploadSuccess(true);
-      fetchHistory();
-      setFile(null);
-      
-      setTimeout(() => setUploadSuccess(false), 5000);
     } catch (error) {
-      console.error("Upload error:", error);
-      alert("เกิดข้อผิดพลาดในการอัปโหลด");
+      console.error("Payroll import failed:", error instanceof Error ? error.message : "unknown");
+      alert(error instanceof Error ? error.message : "ตรวจสอบเอกสารไม่สำเร็จ");
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handleDelete = async (id: string, storagePath: string, month: string, year: string) => {
-    if(confirm(`คุณต้องการลบข้อมูลสลิปเดือน ${month} ${year} ใช่หรือไม่? (ข้อมูลสลิปย่อยจะถูกลบทั้งหมด)`)) {
-      // 1. Delete original file from Storage
-      if (storagePath) {
-        await supabase.storage.from('slips').remove([storagePath]);
-      }
-      
-      // 2. Delete all slips for this month/year
-      await supabase
-        .from('slips')
-        .delete()
-        .match({ month: month, year: year });
-
-      // 3. Delete history item
-      await supabase
-        .from('upload_history')
-        .delete()
-        .match({ id: id });
-
-      // Update UI
-      setHistoryItems(historyItems.filter(item => item.id !== id));
+  const handleInspectStaged = async () => {
+    if (isUploading || recoveryBusy) return;
+    setRecoveryBusy(true);
+    setStagedReview(null);
+    try {
+      const response = await fetch("/api/admin/staged-recovery", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month: selectedMonth, year: selectedYear }),
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "ตรวจสอบข้อมูลค้างไม่สำเร็จ");
+      setStagedReview(data as StagedReview);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "ตรวจสอบข้อมูลค้างไม่สำเร็จ");
+    } finally {
+      setRecoveryBusy(false);
     }
   };
 
-  const handleViewFile = (storagePath: string) => {
-    if (!storagePath) {
-      alert("ไม่มีไฟล์บันทึกไว้ในระบบ");
+  const handleDiscardStaged = async () => {
+    if (isUploading || recoveryBusy || !stagedReview ||
+        stagedReview.month !== selectedMonth || stagedReview.year !== selectedYear ||
+        stagedReview.published || !stagedReview.snapshot ||
+        stagedReview.stagedCount < 1 || stagedReview.stagedCount > 500) return;
+    const { month, year, stagedCount, snapshot } = stagedReview;
+    const confirmation = `ลบสลิปค้าง ${month} ${year}`;
+    const typed = window.prompt(
+      `การดำเนินการนี้ลบสลิปที่ยังไม่เผยแพร่ ${stagedCount} รายการอย่างถาวร ไม่ใช่การลบเดือนที่เผยแพร่แล้ว กรุณาตรวจสอบสำเนาสำรองก่อนดำเนินการ\nพิมพ์ข้อความต่อไปนี้เพื่อยืนยัน:\n${confirmation}`
+    );
+    if (typed !== confirmation) return;
+    setRecoveryBusy(true);
+    try {
+      const response = await fetch("/api/admin/staged-recovery", {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ month, year, expectedCount: stagedCount, snapshot, confirmation }),
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "ล้างสลิปค้างไม่สำเร็จ");
+      setStagedReview(null);
+      alert(`ล้างสลิปที่ยังไม่เผยแพร่ ${data.deleted} รายการแล้ว กรุณาตรวจสอบก่อนอัปโหลดใหม่`);
+    } catch (error) {
+      setStagedReview(null);
+      alert(error instanceof Error ? error.message : "การกู้คืนไม่สำเร็จ โปรดตรวจสอบใหม่");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
+  const handleDelete = async (id: string, storagePath: string | null, month: string, year: string) => {
+    if (isUploading || recoveryBusy) return;
+    if (storagePath) {
+      alert("เดือนนี้ยังมีไฟล์ต้นฉบับใน Storage ห้ามลบผ่านหน้าเว็บ ต้องตรวจสอบสำเนาสำรองและไฟล์ต้นฉบับกับผู้ดูแลระบบก่อน");
       return;
     }
-    const { data } = supabase.storage.from('slips').getPublicUrl(storagePath);
-    window.open(data.publicUrl, '_blank');
+    setRecoveryBusy(true);
+    try {
+      // Preview never reveals any account numbers, PDF bytes or private paths.
+      const previewResponse = await fetch("/api/admin/published-deletion", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, month, year }), cache: "no-store",
+      });
+      const preview = await previewResponse.json();
+      if (!previewResponse.ok) throw new Error(preview.error || "ตรวจสอบข้อมูลก่อนลบไม่สำเร็จ");
+      if (!preview.eligible || !preview.snapshot) {
+        if (preview.storageProtected) throw new Error("เดือนนี้มีไฟล์ต้นฉบับใน Storage ต้องตรวจสอบและสำรองไฟล์ก่อน ไม่อนุญาตให้ลบผ่านหน้าเว็บ");
+        throw new Error("ไม่สามารถลบเดือนนี้ได้: จำนวนสลิปหรือประวัติไม่ถูกต้อง กรุณาให้ผู้ดูแลตรวจสอบ");
+      }
+      const count = preview.slipCount as number;
+      const backedUp = window.confirm(
+        `คุณได้สำรองไฟล์สลิปเดือน ${month} ${year} และตรวจสอบว่านำกลับมาใช้งานได้แล้วหรือไม่?\n\nมีสลิปที่เผยแพร่ ${count} รายการ การลบจะลบทั้งสลิปและประวัติอย่างถาวร หากยังไม่มีสำเนาที่ตรวจสอบแล้ว ให้กดยกเลิก`
+      );
+      if (!backedUp) return;
+      const confirmation = `ลบสลิปที่เผยแพร่ ${month} ${year}`;
+      const typed = window.prompt(
+        `ยืนยันลบสลิปที่เผยแพร่ ${count} รายการ\nพิมพ์ข้อความนี้ให้ตรงทุกตัวอักษร:\n${confirmation}`
+      );
+      if (typed !== confirmation) return;
+      const response = await fetch("/api/admin/published-deletion", {
+        method: "DELETE", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, month, year, expectedCount: count,
+          snapshot: preview.snapshot, confirmation, backupConfirmed: true }),
+        cache: "no-store",
+      });
+      const data = await response.json();
+      if (!response.ok || data?.success !== true || data?.deleted !== count)
+        throw new Error("ไม่สามารถยืนยันการลบได้ กรุณาตรวจสอบสถานะก่อนดำเนินการซ้ำ");
+      // Database deletion already committed. Failure to refresh history is
+      // only a UI problem; never imply that another deletion is necessary.
+      try {
+        await fetchHistory();
+      } catch {
+        alert(`ลบสลิปที่เผยแพร่ ${data.deleted} รายการแล้ว แต่โหลดประวัติไม่สำเร็จ กรุณารีเฟรชเพื่อตรวจสอบ ห้ามลบซ้ำ`);
+        return;
+      }
+      alert(`ลบสลิปที่เผยแพร่ ${data.deleted} รายการแล้ว กรุณาตรวจสอบประวัติอีกครั้ง`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "ดำเนินการลบไม่สำเร็จ กรุณาตรวจสอบรายการอีกครั้ง");
+    } finally {
+      setRecoveryBusy(false);
+    }
   };
 
-  const handleLogout = () => {
-    sessionStorage.removeItem("adminAuth");
+  const handleViewFile = (storagePath: string | null) => {
+    if (!storagePath) { alert("ไม่มีไฟล์บันทึกไว้ในระบบ"); return; }
+    window.open("/api/admin/storage?path=" + encodeURIComponent(storagePath), "_blank");
+  };
+
+  const handleLogout = async () => {
+    await fetch("/api/auth", { method: "DELETE" }).catch(() => {});
     router.push("/");
   };
 
@@ -405,17 +468,20 @@ export default function AdminPage() {
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-2">ลิงก์ Google Sheet (รายชื่อและเลขบัญชี)</label>
+                  <label className="block text-xs font-medium text-slate-500 mb-2">ทะเบียนบุคลากร</label>
+                  <p className="text-sm text-slate-700 mb-2">
+                    ใช้ทะเบียนที่กำหนดไว้ในระบบ หรือเลือกไฟล์ CSV จากเครื่องเฉพาะการอัปโหลดครั้งนี้
+                  </p>
                   <input
-                    type="url"
+                    type="file"
+                    accept=".csv,text/csv"
+                    aria-label="ไฟล์ CSV ทะเบียนบุคลากร (ไม่บังคับ)"
                     className="glass-input w-full text-sm bg-white"
-                    value={sheetUrl}
-                    onChange={(e) => setSheetUrl(e.target.value)}
-                    placeholder="https://docs.google.com/..."
+                    onChange={(e) => setRosterCsvFile(e.target.files?.[0] ?? null)}
                   />
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
-                  ระบบจะอ่านข้อมูลพนักงานเพื่อใช้แยกไฟล์อัตโนมัติจากลิงก์นี้
+                  หากเลือก CSV ระบบจะอ่านเฉพาะในเบราว์เซอร์ของผู้ดูแลและไม่ส่งทะเบียนขึ้นเซิร์ฟเวอร์ หากไม่เลือกจะอ่านทะเบียนผ่าน API สำหรับ Admin
                 </p>
               </div>
             </div>
@@ -433,7 +499,7 @@ export default function AdminPage() {
                     <select 
                       className="glass-input w-full bg-white"
                       value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
+                      onChange={(e) => { setSelectedMonth(e.target.value); setStagedReview(null); }}
                     >
                       {MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
                     </select>
@@ -443,7 +509,7 @@ export default function AdminPage() {
                     <select 
                       className="glass-input w-full bg-white"
                       value={selectedYear}
-                      onChange={(e) => setSelectedYear(e.target.value)}
+                      onChange={(e) => { setSelectedYear(e.target.value); setStagedReview(null); }}
                     >
                       {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
                     </select>
@@ -527,6 +593,47 @@ export default function AdminPage() {
                   )}
                 </button>
               </form>
+              <div className="border-t border-slate-200 mt-6 pt-5 space-y-3">
+                <p className="text-sm font-medium text-slate-700">ตรวจสอบสลิปที่อัปโหลดค้าง</p>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  ตรวจสอบเฉพาะเดือนและปีที่เลือก ระบบจะไม่ลบข้อมูลโดยอัตโนมัติ
+                </p>
+                <button type="button" onClick={handleInspectStaged}
+                  disabled={recoveryBusy || isUploading}
+                  className="w-full px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 text-sm text-slate-700">
+                  {recoveryBusy ? "กำลังตรวจสอบ..." : "ตรวจสอบข้อมูลอัปโหลดค้าง"}
+                </button>
+                {stagedReview &&
+                  stagedReview.month === selectedMonth && stagedReview.year === selectedYear && (
+                  <div className="rounded-lg border border-slate-200 p-3 bg-slate-50 space-y-2">
+                    <p className="text-sm text-slate-700">
+                      {stagedReview.published
+                        ? "เดือนนี้เผยแพร่แล้ว ไม่อนุญาตให้ใช้วิธีกู้คืนสลิปค้าง"
+                        : stagedReview.stagedCount === 0
+                        ? "ไม่พบข้อมูลอัปโหลดค้างในเดือนนี้"
+                        : `พบสลิปที่ยังไม่เผยแพร่ ${stagedReview.stagedCount} รายการ`}
+                    </p>
+                    {!stagedReview.published && stagedReview.stagedCount > 0 &&
+                      stagedReview.stagedCount <= 500 && stagedReview.snapshot && (
+                      <>
+                        <p className="text-xs text-rose-700">
+                          ลบเฉพาะข้อมูลค้างที่ยังไม่เผยแพร่ และลบอย่างถาวร ต้องตรวจสอบสำเนาสำรองก่อน
+                        </p>
+                        <button type="button" onClick={handleDiscardStaged}
+                          disabled={recoveryBusy || isUploading}
+                          className="w-full px-4 py-2 rounded-lg bg-rose-50 text-rose-800 border border-rose-300 hover:bg-rose-100 disabled:opacity-50 text-sm">
+                          ยืนยันการล้างสลิปค้าง (ต้องพิมพ์ยืนยันอีกครั้ง)
+                        </button>
+                      </>
+                    )}
+                    {!stagedReview.published && stagedReview.stagedCount > 500 && (
+                      <p className="text-xs text-rose-700">
+                        พบข้อมูลเกิน 500 รายการ ไม่อนุญาตให้ล้างผ่านหน้าเว็บ ต้องตรวจสอบโดยผู้ดูแลระบบ
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -615,10 +722,11 @@ export default function AdminPage() {
                                 </div>
 
                                 <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end mt-2 sm:mt-0">
-                                  <button 
+                                  <button
                                     onClick={() => handleViewFile(item.storage_path)}
-                                    className="flex-1 sm:flex-none flex items-center justify-center p-2 text-slate-500 hover:text-emerald-600 bg-slate-50 hover:bg-emerald-50 rounded-xl transition-colors"
-                                    title="ดูไฟล์"
+                                    disabled={!item.storage_path}
+                                    className="flex-1 sm:flex-none flex items-center justify-center p-2 text-slate-500 hover:text-emerald-600 bg-slate-50 hover:bg-emerald-50 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                    title={item.storage_path ? "ดูไฟล์ต้นฉบับ" : "ไม่มีไฟล์ต้นฉบับบันทึกไว้"}
                                   >
                                     <Eye className="w-4 h-4 sm:mr-0" />
                                   </button>

@@ -1,0 +1,107 @@
+/**
+ * Validate Google Sheets API JSON before it can reach the roster parser.
+ * No staff rows, Sheet IDs or upstream response fragments are included in errors.
+ * This module is pure so isolated Node tests never call Google APIs.
+ */
+type SheetTab = { properties?: { sheetId?: unknown; title?: unknown } };
+
+export function parsePrivateStaffSheetTitle(payload: unknown): string {
+  const sheets = (payload as { sheets?: unknown } | null)?.sheets;
+  if (!Array.isArray(sheets) || sheets.length > 1_000) {
+    throw new Error("Missing Google Sheet tabs");
+  }
+  const rosterTabs = sheets.filter(
+    (value: unknown) => value !== null && typeof value === "object" &&
+      (value as SheetTab).properties?.sheetId === 0,
+  ) as SheetTab[];
+  if (rosterTabs.length !== 1) {
+    throw new Error("Expected gid=0 staff roster tab not found");
+  }
+  const title = rosterTabs[0].properties?.title;
+  if (typeof title !== "string" || !title.trim() || title.length > 200 ||
+      /[\u0000-\u001f\u007f]/.test(title)) {
+    throw new Error("Invalid gid=0 staff roster tab title");
+  }
+  return title;
+}
+
+export function parsePrivateStaffSheetRows(payload: unknown): string[][] {
+  const values = (payload as { values?: unknown } | null)?.values;
+  if (!Array.isArray(values) || values.length < 1 || values.length > 1_000 ||
+      !values.every(row => Array.isArray(row) && row.length <= 4 &&
+        row.every((cell: unknown) => typeof cell === "string"))) {
+    throw new Error("Private Google Sheet row format is invalid");
+  }
+  return values as string[][];
+}
+
+
+/**
+ * Accept only a usable Google OAuth Bearer token for this single read-only
+ * request. Never return upstream error bodies, token values or scopes in errors.
+ */
+export function parsePrivateSheetsOAuthToken(payload: unknown): string {
+  const body = payload as {
+    access_token?: unknown; token_type?: unknown;
+    expires_in?: unknown; scope?: unknown;
+  } | null;
+  const token = body?.access_token;
+  const duration = body?.expires_in;
+  const scope = body?.scope;
+  if (typeof token !== "string" || token.length < 20 ||
+      token.length > 8_000 || /[\s\u0000-\u001f\u007f]/.test(token) ||
+      body?.token_type !== "Bearer" ||
+      typeof duration !== "number" || !Number.isInteger(duration) ||
+      duration < 30 || duration > 86_400 ||
+      (scope !== undefined &&
+        (typeof scope !== "string" ||
+          !scope.split(/\s+/).includes("https://www.googleapis.com/auth/spreadsheets.readonly")))) {
+    throw new Error("Private Google Sheets authorization failed");
+  }
+  return token;
+}
+
+/** Find the original admin Settings tab without trusting arbitrary tab names. */
+export function parsePrivateAdminSettingsTitle(payload: unknown): string {
+  const sheets = (payload as { sheets?: unknown } | null)?.sheets;
+  if (!Array.isArray(sheets) || sheets.length > 1_000) {
+    throw new Error("Private admin Settings tab unavailable");
+  }
+  const matches = sheets.filter((tab: unknown) =>
+    tab !== null && typeof tab === "object" &&
+    (tab as SheetTab).properties?.title === "Settings" &&
+    typeof (tab as SheetTab).properties?.sheetId === "number",
+  );
+  if (matches.length !== 1) {
+    throw new Error("Private admin Settings tab unavailable");
+  }
+  return "Settings";
+}
+
+/**
+ * Preserve the legacy Settings layout: label in column A and value in column
+ * B, or (if B is empty) in column A of the immediately following row.
+ * Never print the PIN or the upstream Sheet response.
+ */
+export function parsePrivateAdminSettingsPin(payload: unknown): string {
+  const values = (payload as { values?: unknown } | null)?.values;
+  if (!Array.isArray(values) || values.length < 1 || values.length > 100 ||
+      !values.every(row => Array.isArray(row) && row.length <= 2 &&
+        row.every((cell: unknown) => typeof cell === "string"))) {
+    throw new Error("Private admin Settings format is invalid");
+  }
+  const indexes: number[] = [];
+  for (let i = 0; i < values.length; i++) {
+    if (values[i][0]?.trim() === "รหัสผ่านแอดมิน") indexes.push(i);
+  }
+  if (indexes.length !== 1) throw new Error("Private admin PIN setting unavailable");
+  const index = indexes[0];
+  const candidate = values[index][1]?.trim() ||
+    (index + 1 < values.length ? values[index + 1][0]?.trim() : "");
+  if (typeof candidate !== "string" ||
+      [...candidate].length !== 3 ||
+      /[\s\u0000-\u001f\u007f]/u.test(candidate)) {
+    throw new Error("Private admin PIN format is invalid");
+  }
+  return candidate;
+}

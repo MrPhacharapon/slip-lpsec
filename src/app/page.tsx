@@ -1,21 +1,23 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Search, Download, FileText, AlertCircle, Settings, X, Lock, Eye, EyeOff } from "lucide-react";
 import { useRouter } from "next/navigation";
-// @ts-ignore
-import Papa from "papaparse";
-import { supabase } from "@/lib/supabase";
+import Image from "next/image";
 
 const ALL_MONTHS = [
   "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
   "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
 ];
 
+type SlipResult = { month: string; year: string; name?: string };
+
 export default function Home() {
   const router = useRouter();
   
   const [bankAccount, setBankAccount] = useState("");
+  const [resultAccount, setResultAccount] = useState("");
+  const searchId = useRef(0);
   const [availableMonths, setAvailableMonths] = useState<string[]>([]);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
   const [showBankAccount, setShowBankAccount] = useState(false);
@@ -26,7 +28,7 @@ export default function Home() {
   const [toYear, setToYear] = useState("");
   
   const [isLoading, setIsLoading] = useState(false);
-  const [results, setResults] = useState<any[] | null>(null);
+  const [results, setResults] = useState<SlipResult[] | null>(null);
   const [employeeData, setEmployeeData] = useState<{name: string, position: string} | null>(null);
 
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -36,7 +38,9 @@ export default function Home() {
 
   const fetchAvailablePeriods = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('upload_history').select('month, year');
+      const response = await fetch('/api/payroll/periods', { cache: 'no-store' });
+      const data = (await response.json()).periods as Array<{ month: string; year: string }>;
+      const error = response.ok ? null : new Error('โหลดช่วงเวลาไม่สำเร็จ');
       
       if (error) {
         console.error("Supabase fetch error:", error);
@@ -67,57 +71,60 @@ export default function Home() {
         // Data is empty
         console.log("No upload history found.");
       }
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
+    } catch (err: unknown) {
+      alert(`Error: ${err instanceof Error ? err.message : String(err)}`);
     }
   }, []);
 
   useEffect(() => {
-    fetchAvailablePeriods();
+    const timer = window.setTimeout(() => { void fetchAvailablePeriods(); }, 0);
+    return () => window.clearTimeout(timer);
   }, [fetchAvailablePeriods]);
 
-  const handleView = (pdfBase64: string) => {
+  const requestPdf = async (month: string, year: string): Promise<Blob> => {
+    const res = await fetch("/api/payroll/pdf", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bankAccount: resultAccount, month, year }),
+      cache: "no-store",
+    });
+    if (!res.ok) throw new Error("ไม่สามารถโหลด PDF ได้");
+    return res.blob();
+  };
+
+  const handleView = async (month: string, year: string) => {
+    // Open the tab on the user's click so browser popup protection does not
+    // suppress it during the asynchronous PDF request.
+    const tab = window.open("", "_blank");
     try {
-      const byteCharacters = atob(pdfBase64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], { type: 'application/pdf' });
+      const blob = await requestPdf(month, year);
       const url = URL.createObjectURL(blob);
-
-      // เปิดดูไฟล์ PDF เต็มจอในแท็บใหม่ทันที
-      const newTab = window.open(url, '_blank');
-      if (!newTab) {
-        window.location.href = url;
-      }
-
-      // ตรวจสอบกรณีผู้ใช้เปิดผ่าน LINE In-App Browser บนมือถือ
-      const isLineApp = /Line/i.test(navigator.userAgent);
-      if (isLineApp) {
-        setTimeout(() => {
-          alert("คำแนะนำสำหรับแอป LINE บนมือถือ:\n\nหากหน้าต่างดูไฟล์ไม่เปิดขึ้นมา (เนื่องจาก LINE มักจะบล็อกการเปิดไฟล์)\n\nกรุณากดไอคอน 'จุด 3 จุด' ที่มุมจอ แล้วเลือก 'เปิดด้วยเบราว์เซอร์อื่น' (Open in Safari / Chrome) ครับ");
-        }, 800);
-      }
+      if (tab) tab.location.assign(url);
+      else window.location.assign(url);
     } catch {
+      tab?.close();
       alert("ไม่สามารถเปิดดูไฟล์ได้");
     }
   };
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!bankAccount.trim()) return;
+    const account = bankAccount.trim();
+    if (!account) return;
+    const requestId = ++searchId.current;
 
     setIsLoading(true);
     setResults(null);
+    setResultAccount("");
     try {
-      const { data, error } = await supabase
-        .from('slips')
-        .select('month, year, pdf_base64')
-        .eq('bank_account', bankAccount.trim());
-
-      if (error) throw error;
+      if (!/^\d{10}$/.test(account)) throw new Error('เลขบัญชีต้องมี 10 หลัก');
+      const response = await fetch('/api/payroll/search', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bankAccount: account }), cache: 'no-store',
+      });
+      if (!response.ok) throw new Error('ไม่สามารถค้นหาสลิปได้');
+      const payload = await response.json();
+      const data = payload.results as Array<{month: string; year: string; name?: string}>;
+      const employee = payload.employee as {name: string; position: string} | null;
       
       // Filter by the selected range
       // For simplicity, we just return what matches exactly or within range
@@ -159,71 +166,35 @@ export default function Home() {
         return monthA - monthB; // Ascending Month (Jan -> Dec)
       });
       
+      if (requestId !== searchId.current) return;
+      setResultAccount(account);
       setResults(filteredData);
-      setEmployeeData(null);
+      setEmployeeData(employee);
 
-      // Fetch employee info from Google Sheets
-      try {
-        const sheetUrl = "https://docs.google.com/spreadsheets/d/1warnAj4x4d7lZecJ3vApaGltSxx1Ji_wv2CkOhcF0nI/export?format=csv&gid=0";
-        const res = await fetch(sheetUrl);
-        const csvText = await res.text();
-        
-        Papa.parse(csvText, {
-          complete: (parsed: any) => {
-            const rows = parsed.data;
-            // Find row where Col 2 (index 2) == bankAccount
-            const matchedRow = rows.find((row: any) => row[2] && row[2].toString().trim() === bankAccount.trim());
-            if (matchedRow) {
-              setEmployeeData({
-                name: matchedRow[0],
-                position: matchedRow[1]
-              });
-            }
-          }
-        });
-      } catch (err) {
-        console.error("Failed to fetch sheet", err);
-      }
+
 
     } catch (error) {
-      console.error("Search error:", error);
-      alert("เกิดข้อผิดพลาดในการค้นหา");
+      if (requestId === searchId.current) {
+        console.error("Search error:", error);
+        alert("เกิดข้อผิดพลาดในการค้นหา");
+      }
     } finally {
-      setIsLoading(false);
+      if (requestId === searchId.current) setIsLoading(false);
     }
   };
 
-  const handleDownload = (pdfBase64: string, month: string, year: string) => {
+  const handleDownload = async (month: string, year: string) => {
     try {
-      const byteCharacters = atob(pdfBase64);
-      const byteNumbers = new Array(byteCharacters.length);
-      for (let i = 0; i < byteCharacters.length; i++) {
-        byteNumbers[i] = byteCharacters.charCodeAt(i);
-      }
-      const byteArray = new Uint8Array(byteNumbers);
-      const blob = new Blob([byteArray], {type: 'application/pdf'});
-      
+      const blob = await requestPdf(month, year);
       const url = URL.createObjectURL(blob);
-      
-      // วิธีที่ 2: พยายามบังคับดาวน์โหลดผ่าน Tag <a>
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
       link.download = `slip_${month}_${year}.pdf`;
       document.body.appendChild(link);
       link.click();
-      document.body.removeChild(link);
-
-      // ตรวจสอบว่าผู้ใช้เปิดผ่าน LINE In-App Browser หรือไม่
-      const isLineApp = /Line/i.test(navigator.userAgent);
-      
-      if (isLineApp) {
-        // วิธีที่ 1 (Fallback): แจ้งเตือนผู้ใช้หากวิธีที่ 2 อาจจะล้มเหลว
-        setTimeout(() => {
-          alert("คำแนะนำสำหรับแอป LINE:\n\nระบบกำลังพยายามดาวน์โหลดไฟล์... แต่หากคุณครูไม่พบไฟล์สลิปที่ดาวน์โหลด (เนื่องจาก LINE มักจะบล็อกไฟล์)\n\nกรุณากดไอคอน 'จุด 3 จุด' หรือสัญลักษณ์แชร์ที่มุมจอ แล้วเลือกเมนู 'เปิดด้วยเบราว์เซอร์อื่น' (Open in browser/Safari/Chrome) ครับ");
-        }, 800); // หน่วงเวลาเล็กน้อยให้หน้าต่างดาวน์โหลดจริงทำงานก่อน (ถ้ามันทำงานได้)
-      }
-      
-    } catch (error) {
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
       alert("ไม่สามารถดาวน์โหลดไฟล์ได้");
     }
   };
@@ -243,12 +214,11 @@ export default function Home() {
       const data = await response.json();
       
       if (response.ok && data.success) {
-        sessionStorage.setItem("adminAuth", "true");
         router.push("/admin");
       } else {
         setAdminError(data.error || "รหัสผ่านไม่ถูกต้อง");
       }
-    } catch (error) {
+    } catch {
       setAdminError("เกิดข้อผิดพลาดในการเชื่อมต่อ");
     } finally {
       setIsCheckingAuth(false);
@@ -274,9 +244,12 @@ export default function Home() {
 
       <div className="w-full max-w-xl z-10 flex flex-col items-center flex-1">
         <div className="text-center mb-10 flex flex-col items-center w-full mt-2">
-          <img 
-            src="https://i.postimg.cc/8kKrvnfY/removebg-preview.png" 
-            alt="โลโก้ศูนย์การศึกษาพิเศษ ประจำจังหวัดลำปาง" 
+          <Image
+            src="https://i.postimg.cc/8kKrvnfY/removebg-preview.png"
+            alt="โลโก้ศูนย์การศึกษาพิเศษ ประจำจังหวัดลำปาง"
+            width={96}
+            height={96}
+            unoptimized
             className="w-24 h-24 object-contain mb-6 drop-shadow-md"
           />
           <h1 className="text-3xl md:text-4xl font-bold mb-3 text-slate-800 leading-tight">
@@ -302,7 +275,14 @@ export default function Home() {
                   placeholder="กรอกเลขบัญชี (ไม่ต้องมีขีด)"
                   className="glass-input w-full bg-white/70 pr-24 font-mono"
                   value={bankAccount}
-                  onChange={(e) => setBankAccount(e.target.value)}
+                  onChange={(e) => {
+                    searchId.current += 1;
+                    setBankAccount(e.target.value);
+                    setResults(null);
+                    setResultAccount("");
+                    setEmployeeData(null);
+                    setIsLoading(false);
+                  }}
                 />
                 <button
                   type="button"
@@ -410,7 +390,7 @@ export default function Home() {
                   <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 pt-2.5 sm:pt-0 border-t sm:border-t-0 border-slate-100/80 justify-end">
                     <button 
                       type="button"
-                      onClick={() => handleView(result.pdf_base64)}
+                      onClick={() => handleView(result.month, result.year)}
                       className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs sm:text-sm font-medium bg-white hover:bg-emerald-50/80 text-slate-700 hover:text-emerald-700 px-4 py-2.5 sm:py-2 rounded-xl transition-all border border-slate-200 shadow-xs hover:border-emerald-300 active:scale-[0.98] cursor-pointer"
                       title="ดูไฟล์เต็มจอในแท็บใหม่"
                     >
@@ -419,7 +399,7 @@ export default function Home() {
                     </button>
                     <button 
                       type="button"
-                      onClick={() => handleDownload(result.pdf_base64, result.month, result.year)}
+                      onClick={() => handleDownload(result.month, result.year)}
                       className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 text-xs sm:text-sm font-medium bg-emerald-50 hover:bg-emerald-100 text-emerald-700 hover:text-emerald-800 px-4 py-2.5 sm:py-2 rounded-xl transition-all border border-emerald-200 shadow-xs hover:border-emerald-300 active:scale-[0.98] cursor-pointer"
                       title="ดาวน์โหลดไฟล์ PDF"
                     >

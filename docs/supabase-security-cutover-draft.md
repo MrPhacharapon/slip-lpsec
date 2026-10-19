@@ -1,0 +1,133 @@
+# ร่างแผนป้องกันข้อมูลสลิปเงินเดือน — ไม่ได้ดำเนินการกับ Production
+
+## IMPORTANT — 19 October 2026 authoritative corrections
+
+This draft contains older planning text below. The following later operator
+decisions/evidence **supersede any conflicting statement below**:
+
+- Production `ADMIN_PASSWORD` was cancelled. The operator keeps the existing
+  three-character Admin PIN. The secured branch reads it server-side from the
+  same Google Sheet `Settings` tab through the read-only Service Account.
+  Production login is throttled to 3 attempts per IP and 10 attempts globally
+  per 10 minutes; this reduces guessing but is not MFA/high-assurance auth.
+- Seven new Production server-only keys are already present in Vercel as
+  Sensitive values. Their values have not been decrypted during review.
+- Google Sheets API + Viewer Service Account are configured and the operator's
+  private local OAuth/tab-metadata test returned PASS. The public Sheet sharing
+  remains temporarily because legacy Main still depends on it.
+- G4 database/PDF backup tasks were explicitly waived by the operator. Do not
+  reintroduce them as a prerequisite. The waiver does not authorize Production
+  writes or destructive rollback.
+- The consolidated Production security candidate is
+  `docs/payroll-production-security-migration-candidate.sql`. It performs no
+  automatic deletion of payroll rows or Storage objects. It was applied
+  successfully on Supabase Test, followed by a successful exact 8-RPC rollback
+  rehearsal. Production remains unchanged and requires explicit G6 approval.
+- Latest Production read-only preflight: 338 slips; max 38 in a period; zero
+  duplicate owner-period/history groups, invalid accounts/names/months/years,
+  staged periods, or history-without-slips. Production still has RLS OFF,
+  broad anon/authenticated grants, public `slips` Storage and four public
+  Storage policies.
+
+
+**สถานะ:** พัฒนาเฉพาะ Branch `fix/payroll-pdf-validation-no-deploy`; ยังไม่ได้ Merge, Deploy หรือใช้คำสั่ง SQL นี้จริง
+
+## วัตถุประสงค์และขอบเขตที่ผู้ใช้อนุมัติ
+
+- **ข้อกำหนดยืนยัน 15 ต.ค. 2569:** คงหน้าเว็บครูให้กรอกเลขบัญชี 10 หลักเพียงอย่างเดียว เลือกช่วงเวลา ค้นหาและเปิด PDF เช่นเดิม **ไม่เพิ่ม OTP การล็อกอิน หรือข้อมูลอื่นสำหรับครู**; ส่วนการตรวจสามรายการชื่อ–บัญชี–เลขตำแหน่งทำเฉพาะตอน Admin อัปโหลด
+- คงหน้า Admin: ใส่รหัสผ่านในหน้าต่างเดิม ไม่เพิ่มระบบบัญชีผู้ใช้หรือ OTP
+- ห้ามให้เบราว์เซอร์ติดต่อ Supabase Data API ด้วยสิทธิ์สาธารณะโดยตรง
+- ให้ API ฝั่ง Next.js ตรวจข้อมูลก่อนเรียก Supabase ผ่าน **service-role key ที่เก็บเป็นค่าแวดล้อมฝั่งเซิร์ฟเวอร์เท่านั้น**
+- **ความเสี่ยงที่รับทราบไว้:** ผู้ที่ทราบเลขบัญชีผู้อื่นยังสามารถใช้วิธีค้นหาแบบเดิมเพื่อเปิดสลิปได้ (ไม่ได้พิสูจน์เจ้าของเลขบัญชี) การตั้ง RLS, Private Storage และ Server API ป้องกันการเรียกฐานข้อมูลโดยตรง แต่ไม่ได้ลบความเสี่ยงนี้; มาตรการจำกัดอัตราคำขอ/เฝ้าระวังต้องออกแบบเพิ่มโดยไม่เปลี่ยนหน้าเว็บครู
+
+## ค่าแวดล้อมใหม่ที่ต้องเตรียมใน Vercel (ยังไม่ได้ตั้งค่า)
+
+| ค่าที่ต้องกำหนด | ความหมาย | ข้อกำหนด |
+|---|---|---|
+| `SUPABASE_URL` | URL ของโครงการ Supabase | เก็บฝั่งเซิร์ฟเวอร์ |
+| `STAFF_SHEET_ID` | ID ทะเบียนบุคลากรใน Google Sheets | จำเป็นเฉพาะเมื่อ Production ใช้ `PAYROLL_ROSTER_MODE=server_sheet`; ห้ามใช้ค่าจาก Production โดยอัตโนมัติในระบบทดสอบ |
+| `PAYROLL_ROSTER_MODE` | เลือกแหล่งทะเบียนบุคลากรสำหรับ Admin | `server_sheet` (ผ่าน API Admin) หรือ `local_csv` (เลือก CSV ในเครื่อง Admin ทุกครั้ง; ไม่ต้องเปิด Sheet สาธารณะ) |
+| `NEXT_PUBLIC_STAFF_SHEET_URL` | ลิงก์ทะเบียนที่แสดงในหน้า Admin | ใช้ลิงก์สมมติใน CI; สำหรับ Production ตั้งลิงก์จริงตอน Deploy หรือให้ผู้ดูแลกรอกเอง |
+| `LINE_CHANNEL_SECRET` | ความลับตรวจ HMAC ของ LINE Webhook | เก็บฝั่งเซิร์ฟเวอร์เท่านั้น ต้องตั้งค่าก่อนใช้ LINE Webhook; ไม่ใช่ LINE access token |
+| `STAFF_DIRECTORY_DISABLED` | ปิดการอ่านทะเบียนครูระหว่างทดสอบ | ตั้ง `true` ในโครงการทดสอบ เพื่อไม่อ่าน Google Sheets จริง |
+| `SUPABASE_SERVICE_ROLE_KEY` | กุญแจสิทธิ์ฝั่งเซิร์ฟเวอร์ | ห้ามตั้ง `NEXT_PUBLIC_` ห้ามแสดงใน log หรือส่งสู่เบราว์เซอร์ |
+| `ADMIN_PASSWORD` | รหัสผ่าน Admin **ใหม่** | อย่างน้อย 12 ตัวอักษร ต้องไม่ใช้ค่าจากชีต Settings ที่เคยแชร์ |
+| `ADMIN_SESSION_SECRET` | กุญแจลงลายมือชื่อคุกกี้ | สุ่มความยาวอย่างน้อย 32 ตัวอักษร ห้ามใช้ซ้ำกับ Admin password |
+| `PAYROLL_RATE_LIMIT_SECRET` | กุญแจ HMAC จำกัดคำขอค้นหา/PDF/รหัส Admin | ต้องสุ่มอย่างน้อย 32 ตัวอักษร ไม่ใช้ซ้ำกับกุญแจอื่น ไม่แสดงให้เบราว์เซอร์ และต้องกำหนดก่อนใช้งาน API ใหม่ |
+| `APP_ORIGIN` | ต้นทางเว็บที่เชื่อถือได้ | ระบุ https://โดเมนเว็บจริงที่ใช้ เป็นค่าคงที่ |
+| `CRON_SECRET` | รหัสยืนยันงาน keep-alive | ห้ามเปิดเผย ฝั่ง Vercel Cron ส่ง Authorization แบบ Bearer |
+
+**ห้ามนำค่าจริงทุกชนิดไป GitHub, GitHub Actions, ไฟล์โค้ด, หรือเอกสาร.** CI ใช้ค่าทดสอบเท่านั้น
+
+## สิ่งที่เปลี่ยนในแอป
+
+- `/api/auth`: ตรวจ Admin password จาก env แทนชีตสาธารณะ และออกคุกกี้ HttpOnly, SameSite=Strict, อายุ 4 ชั่วโมง
+- `/api/admin/*`: ตรวจคุกกี้และ Origin สำหรับการเปลี่ยนข้อมูล
+- `/api/payroll/periods`: แสดงเฉพาะเดือน/ปีที่มีประวัติการเผยแพร่
+- `/api/payroll/search`: ส่งข้อมูลรายการตามเลขบัญชี 10 หลัก **ไม่ส่ง PDF ทุกเดือนมาพร้อมกัน**
+- `/api/payroll/pdf`: ส่ง PDF ฉบับเดียวตามเลขบัญชี+เดือน+ปีจากเดือนที่เผยแพร่แล้ว; ปิด Cache
+- เพิ่มการจำกัดคำขอแบบใช้ PostgreSQL ร่วมกันข้ามเซิร์ฟเวอร์: ค้นหา 80 ครั้งต่อ IP และ 20 ครั้งต่อเลขบัญชีทุก 10 นาที, เปิด PDF 80/20 ครั้งตามลำดับ, ลองรหัส Admin 40 ครั้งต่อ IP ทุก 10 นาที; คืน HTTP 429 เมื่อเกินโควตา และ HTTP 503 เมื่อฐานข้อมูล/ค่าลับยังไม่พร้อม **ไม่มีการเพิ่ม OTP หรือช่องกรอกอื่นแก่ครู**
+- ตาราง `payroll_request_limits` เก็บเฉพาะกุญแจ HMAC ไม่เก็บเลขบัญชี/IP โดยตรง; RPC ใช้ `SECURITY INVOKER` และสิทธิ์ `service_role` เท่านั้น SQL ที่ผ่านการทดสอบในโครงการทดสอบอยู่ที่ `docs/payroll-rate-limit-test-schema.sql` **ยังไม่ได้ใช้กับ Production**
+- การอัปโหลดของผู้ดูแล: ส่งสลิปเป็นชุดเล็กผ่าน RPC `stage_payroll_slips` และบันทึกประวัติผ่าน RPC `publish_payroll_period` เมื่อครบ; ฟังก์ชันทั้งคู่ล็อกธุรกรรม PostgreSQL สำหรับเดือน/ปีเดียวกันเพื่อป้องกันการเพิ่มสลิปแข่งกับการเผยแพร่ แต่ **สอง RPC ยังเป็นคนละธุรกรรม** หากขัดข้องระหว่างทาง จะมี staged rows เหลือโดยไม่เผยแพร่ และต้องกู้คืน/ตรวจรับโดยผู้ดูแล ห้ามลบอัตโนมัติ
+- เซิร์ฟเวอร์ตรวจความถูกต้องเชิงโครงสร้างของ PDF รายบุคคลก่อนบันทึก: Base64 ต้องถูกต้อง, PDF ต้องเปิดได้, มี 1 หน้า ไม่หมุน ขนาด 1071×792 หรือ 1071×396 โดยประมาณ แต่ **การตรวจนี้ไม่ยืนยันว่าภาพใน PDF เป็นของบัญชีที่อ้างไว้**; การเทียบชื่อ–บัญชี–เลขตำแหน่งจากต้นฉบับยังอยู่ในหน้าผู้ดูแล
+- `/api/admin/storage`: เปิดไฟล์ต้นฉบับเก่าผ่านสิทธิ์ Admin โดยไม่สร้าง public URL
+- `/api/send-line`: ห้ามเรียกส่งประกาศ LINE โดยไม่มีคุกกี้ Admin ที่ตรวจแล้วและ Origin ที่ถูกต้อง
+- `/api/line-webhook`: ตรวจ `x-line-signature` ของ LINE กับ raw body ด้วย HMAC-SHA256 ก่อนอ่าน JSON; หาก `LINE_CHANNEL_SECRET` ยังไม่ตั้งค่า ระบบปฏิเสธ Webhook ทั้งหมด (เป็นข้อกำหนดก่อนเปิดใช้จริง)
+- หน้าเว็บครู: เมื่อแก้เลขบัญชีในช่องกรอก ต้องเคลียร์ผลการค้นหาเดิมและไม่เปิดสลิปของบัญชีที่แสดงผิดคน
+
+## ต้องเปลี่ยน Supabase พร้อม Deploy: SQL เสนอให้ตรวจรับ **ก่อนรัน** เท่านั้น
+
+```sql
+BEGIN;
+ALTER TABLE public.slips ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.upload_history ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.slips FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON TABLE public.upload_history FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.slips TO service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.upload_history TO service_role;
+COMMIT;
+```
+
+ไม่ต้องสร้าง policy SELECT สำหรับ `anon` เพราะหน้าเว็บเปลี่ยนมาเรียก API ของ Next.js แล้ว (หากเปิดเผยข้อมูลโดยตรงจะกลับมามีช่องโหว่) ก่อนใช้ SQL ต้องตรวจ grants/policies และบริการอื่นที่อาศัยตารางเดิมให้ครบ และทดสอบบน Supabase แยกจริงก่อน
+
+### Migration ที่ต้องผ่าน Go/No-Go พร้อมโค้ดใหม่
+
+- ต้องเพิ่ม RPC สองตัวตาม `docs/payroll-atomic-publish-test-schema.sql` **พร้อม** การ Deploy API รุ่นนี้ มิฉะนั้น Admin จะไม่สามารถอัปโหลด/เผยแพร่ได้; ห้ามนำโค้ดขึ้น Production โดยไม่เตรียมฐานข้อมูลและค่าลับฝั่งเซิร์ฟเวอร์ครบ
+- ก่อนสร้าง unique index `(bank_account,month,year)` ใน `slips` และ `(month,year)` ใน `upload_history` สำหรับ Production ต้องตรวจหาข้อมูลซ้ำจริงและกำหนดวิธีแก้อย่างได้รับอนุมัติ; ไม่ทำ `DELETE` อัตโนมัติ
+- RPC ใช้ `SECURITY INVOKER` และ `REVOKE EXECUTE FROM PUBLIC,anon,authenticated`; อนุญาต `service_role` เท่านั้น และตรวจด้วย `has_function_privilege`
+- การทดสอบใน `sliplpsec-test` ยืนยัน: ผิดจำนวน = ไม่เผยแพร่, เมื่อเผยแพร่แล้ว = ไม่รับรายการเพิ่ม, ส่งบัญชีซ้ำสองคำขอ = เหลือหนึ่งสลิป, rollback/ล้างข้อมูลสมมติได้
+- **การกู้คืนข้อมูลที่ยังไม่เผยแพร่ (พัฒนาใน Branch / ทดสอบบน sliplpsec-test แล้ว):** `docs/payroll-staged-recovery-test-schema.sql` เพิ่ม RPC แบบ `SECURITY INVOKER` สองตัว `inspect_unpublished_payroll_period` และ `discard_unpublished_payroll_period`; ใช้ Transaction advisory lock เดียวกับ Stage/Publish, ตรวจจำนวนและ SHA-256 snapshot ของรหัสระเบียน/เลขบัญชีภายใต้ล็อกก่อนลบ; เมื่อเผยแพร่แล้วหรือ snapshot เปลี่ยน ระบบปฏิเสธโดยไม่ลบ
+- หน้า Admin เพิ่มปุ่มตรวจสอบสลิปค้างและปุ่มล้างที่ต้องพิมพ์ `ลบสลิปค้าง [เดือน] [ปี]` ให้ตรงทุกตัวอักษร ไม่มีการลบอัตโนมัติ, ไม่มีการแสดงเลขบัญชีจริงในผลตรวจ, ล้างได้ไม่เกิน 500 ระเบียนต่อคำสั่ง, ไม่แตะประวัติเผยแพร่หรือ Storage
+- **ข้อจำกัดสำคัญ:** ล้างสลิปค้างเป็นการลบจริงและไม่สร้างสำเนาสำรองอัตโนมัติ; ผู้ดูแลต้องมีไฟล์ PDF ต้นฉบับที่นำกลับมาอัปโหลดใหม่ได้ก่อนยืนยัน และต้องแน่ใจว่าไม่มีระบบอื่นเขียนตรงลงตารางโดยไม่ผ่าน RPC ที่ล็อกธุรกรรมเดียวกัน
+- **ลบเดือนที่เผยแพร่แล้ว (พัฒนาใน Branch / ทดสอบบน sliplpsec-test):** `docs/payroll-published-deletion-test-schema.sql` เพิ่ม RPC `inspect_published_payroll_deletion` และ `delete_published_payroll_period` แบบ `SECURITY INVOKER`, เปิดเฉพาะ `service_role`, ใช้ advisory lock เดียวกับ stage/publish และล็อกแถวประวัติ/สลิปเพื่อป้องกันข้อมูลเปลี่ยนระหว่างคำสั่ง
+- ฟังก์ชันจะลบสลิปและประวัติในธุรกรรมเดียวกัน เฉพาะเดือนที่มีประวัติเพียง 1 รายการ สลิป 1–500 รายการ และไม่มี `storage_path` อ้างอิงไฟล์ต้นฉบับ; ยืนยันจำนวนและ snapshot SHA-256 ที่ครอบคลุม PDF ของแต่ละคนก่อนลบ
+- หน้า Admin จะตรวจจำนวนก่อนและถามว่ามีสำเนาสำรองที่ตรวจสอบแล้วหรือไม่ จากนั้นให้พิมพ์ `ลบสลิปที่เผยแพร่ [เดือน] [ปี]` ยืนยัน; ส่วน `DELETE /api/admin/history` แบบเดิมถูกปิดด้วย 405 เพื่อไม่ให้ลบแยกหลายคำสั่ง
+- **ขอบเขตที่ยังไม่พร้อม Production:** ยังไม่มีระบบสำรองไฟล์อัตโนมัติ; เดือนเก่าที่มีไฟล์ใน Storage ถูกปฏิเสธโดยตั้งใจ ต้องตรวจ/วางแผนไฟล์ต้นฉบับแบบแยกต่างหาก และยังไม่ได้ทดสอบ Next.js → Supabase จริงด้วย service-role secret
+- **หลักฐาน SQL Retest (16 ต.ค. 2569, โครงการ `sliplpsec-test` เท่านั้น):** ตรวจจริงผ่าน PostgreSQL โดยใช้ข้อมูลสมมติใน Transaction ที่ ROLLBACK แล้ว ได้แก่ stage/publish, ปฏิเสธจำนวนไม่ตรง, ปฏิเสธ stage หลังเผยแพร่, snapshot SHA-256, ปฏิเสธ snapshot เก่า, ปฏิเสธจำนวนผิด, ปฏิเสธการลบกรณีมี Storage path และลบทั้ง slips/history ในธุรกรรมเดียว ผลตรวจหลัง Rollback: ไม่มี slips/history/Storage objects ค้างอยู่ ผลนี้ **ยังไม่ใช่** Next.js → Supabase API Integration Test แบบครบวงจร
+- **Production rollout dependency:** ต้องติดตั้ง staged-recovery RPC เพิ่มในฐานข้อมูลพร้อมโค้ดใหม่ด้วย มิฉะนั้นปุ่มกู้คืนจะใช้งานไม่ได้; ห้ามนำ schema ทดสอบไปรันกับ Production โดยไม่มีการอนุมัติแยก
+
+
+Storage: เปลี่ยน bucket `slips` เป็น private และยกเลิก policy `storage.objects` ที่อนุญาต `public` SELECT/INSERT/UPDATE/DELETE โดยใช้ Supabase Dashboard/API ด้วยคำสั่งที่ผ่านการตรวจรับ แนะนำปิดการเผยแพร่ไฟล์เดิมและตรวจ CDN cache ด้วย ก่อนทำต้องตรวจไฟล์ที่ยังถูกอ้างอิงในประวัติ อย่า delete Storage objects โดยเดา
+
+ปัจจุบัน Supabase Advisor ยังแจ้ง RLS Disabled on Public และ Bucket `slips` เป็น public; **ยังไม่มีการแก้ไขจริง**
+
+**ข้อควรระวังการจำกัดคำขอ:** หากผู้ใช้หลายคนอยู่หลัง IP สาธารณะเดียวกัน อาจใช้โควตาร่วมกัน; ผู้โจมตีที่ทราบเลขบัญชีอาจใช้โควตาของบัญชีนั้นจนเต็มเพื่อขัดขวางเจ้าของบัญชี การจำกัดคำขอจึงช่วยลดความเสี่ยงการลองบัญชี แต่ไม่ใช่การพิสูจน์ตัวตน และควรพิจารณา Edge/WAF เพิ่มเติมก่อน Production
+
+## เหตุผลที่ห้าม Deploy โค้ดเพียงอย่างเดียว
+
+1. หาก Deploy แต่ไม่ล็อก Supabase: ผู้รู้ URL/anon key เดิมยังเรียกฐานข้อมูลสลิปทั้งหมดได้
+2. หากล็อก Supabase ก่อน Deploy: หน้าเว็บ Production เดิมจะอ่าน/เขียนไม่ได้
+3. จึงต้องทำการตรวจรับระบบเซิร์ฟเวอร์และแผนเปลี่ยนผ่านอย่างประสานกัน ขณะยังไม่อนุมัติ Deploy ห้ามแก้ RLS/Bucket
+4. รหัส Admin เดิมอยู่ในชีต Settings ที่แชร์ผ่านลิงก์ การนำขึ้นใหม่ต้องใช้รหัสใหม่ใน env และจัดการข้อมูลรหัสเดิมออกจากชีตตามแผนที่อนุมัติ
+
+## ประเด็นที่ยังต้องตรวจเพิ่ม
+
+- มาตรการจำกัดจำนวนคำขอค้นหาและลองรหัสผ่านระดับ Edge/WAF (การนับในหน่วยความจำเซิร์ฟเวอร์ไม่เพียงพอสำหรับ serverless)
+- เส้นทาง Admin แบบ staged upload และการบันทึกประวัติยังไม่ใช่ transaction เดียวกัน; ต้องทดสอบ recovery
+- Browser E2E จำลอง Supabase ด้วย localhost, ไม่ใช่การทดสอบบนฐานข้อมูลสำรองจริง
+- ทดสอบ PostgreSQL จริงในโครงการ `sliplpsec-test` ผ่านแล้วเฉพาะสิทธิ์การอ่าน/เขียน, การปฏิเสธข้อมูลซ้ำ, staged → published → query, และการล้างข้อมูลทดสอบ; รายละเอียดดู `docs/supabase-test-project-results.md`
+- ยังไม่สามารถทดสอบ Next.js ต่อกับ Supabase โครงการทดสอบจริงได้โดยตรง เพราะยังไม่ได้ตั้ง `SUPABASE_SERVICE_ROLE_KEY` ของโครงการทดสอบในสภาพแวดล้อมรันที่เข้าถึงเครือข่ายได้ (ห้ามนำ secret ไปใส่ GitHub/แชท)
+- Rate limit และการเข้าถึงจากบุคคลที่รู้บัญชีผู้อื่นยังเป็นความเสี่ยงคงเหลือภายใต้ UX ที่ผู้ใช้ระบุ
+- ก่อน Production ต้องสำรองข้อมูลจริง ยืนยันที่มาของไฟล์เก่า ตรวจการคืนสภาพ และขออนุมัติ Merge/Deploy/เปลี่ยน Database แยกต่างหาก
+
+แหล่งอ้างอิง Supabase: https://supabase.com/docs/guides/api/securing-your-api
