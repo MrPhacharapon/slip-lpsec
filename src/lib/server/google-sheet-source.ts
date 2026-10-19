@@ -53,9 +53,11 @@ async function loadPrivateSheetPayload(target: "roster" | "admin_pin"): Promise<
     headers, cache: "no-store", signal: AbortSignal.timeout(9000),
   });
   if (!data.ok) throw new Error("Private Google Sheet data not readable");
-  const content: unknown = JSON.parse(await readBoundedResponseText(
-    data, target === "roster" ? 1_000_000 : 16_384,
-  ));
+  // Keep the existing one-megabyte roster streaming guard unchanged;
+  // Settings contains only a short private range with a tighter 16KB cap.
+  const content: unknown = JSON.parse(target === "roster"
+    ? await readBoundedResponseText(data, 1_000_000)
+    : await readBoundedResponseText(data, 16_384));
   return content;
 }
 
