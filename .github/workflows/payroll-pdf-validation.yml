@@ -2,7 +2,9 @@ name: Payroll PDF validation (isolated)
 on:
   push:
     branches:
-      - fix/payroll-pdf-validation-no-deploy
+      - main
+      - 'fix/**'
+      - 'chore/**'
   workflow_dispatch:
 
 permissions:
