@@ -1,0 +1,37 @@
+name: Temporary PDF worker refresh
+
+on:
+  push:
+    branches:
+      - chore/dependency-security-hardening
+
+permissions:
+  contents: write
+
+jobs:
+  refresh-worker:
+    if: ${{ !contains(github.event.head_commit.message, '[worker-refresh]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Sync exact PDF.js worker
+        run: |
+          cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.mjs
+          node -e 'const fs=require("fs"),crypto=require("crypto"),pkg=require("./node_modules/pdfjs-dist/package.json"); const a=fs.readFileSync("public/pdf.worker.min.mjs"), b=fs.readFileSync("node_modules/pdfjs-dist/build/pdf.worker.min.mjs"); if (!a.equals(b)) process.exit(1); console.log(JSON.stringify({pdfjs:pkg.version,bytes:a.length,sha256:crypto.createHash("sha256").update(a).digest("hex")}))'
+      - name: Commit exact worker
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/pdf.worker.min.mjs
+          git diff --cached --quiet && exit 0
+          git commit -m "chore(pdfjs): sync worker with package [worker-refresh]"
+          git push origin HEAD:chore/dependency-security-hardening
