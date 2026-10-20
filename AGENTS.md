@@ -30,3 +30,10 @@ Next.js rules above.
 - Report changed files, exact commit, CI outcome, unresolved
   G1-G8 gates and risks. Update the project status with last
   verified evidence rather than unsupported success claims.
+
+
+<!-- BEGIN:slip-lpsec-risk-based-execution -->
+## Risk-based continuous execution (payroll system)
+
+Read and follow `.agents/skills/risk-based-continuous-execution/SKILL.md` for maintenance work. Reuse valid test evidence tied to an unchanged SHA/environment; do not repeat optional checks routinely. Parallelize safe independent tasks. Keep required GitHub `validate` checks and branch protection; test changed high-risk surfaces and verify affected Production invariants. Use feature branches and PRs, never edit protected `main` directly. Require explicit operator approval before merging to `main`, modifying Production or database/secrets/security settings, or deleting data/backups. Never disclose real payroll PII, bank accounts, PINs, credentials, PDFs or private roster identifiers.
+<!-- END:slip-lpsec-risk-based-execution -->
