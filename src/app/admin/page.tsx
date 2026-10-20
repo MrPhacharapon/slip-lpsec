@@ -131,7 +131,7 @@ export default function AdminPage() {
       ensurePdfJsMapCompatibility();
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.compat.mjs";
-      const doc = await pdfjs.getDocument({ data: buffer.slice(0) }).promise;
+      const doc = await pdfjs.getDocument({ data: buffer.slice(0), enableScripting: false }).promise;
       if (!doc.numPages || doc.numPages > 500) throw new Error("จำนวนหน้า PDF ไม่ถูกต้องหรือมากเกินกำหนด");
 
       // Read-only preflight: never delete old payroll records to replace a month.
