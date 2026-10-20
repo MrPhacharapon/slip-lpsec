@@ -421,6 +421,40 @@ export default function AdminPage() {
     }
   };
 
+  const handleRestoreOriginal = async (item: HistoryItem, pdf: File) => {
+    if (item.month !== "ตุลาคม" || item.year !== "2569" || item.storage_path ||
+        !pdf.name.toLowerCase().endsWith(".pdf") ||
+        pdf.type !== "application/pdf" || pdf.size > 10 * 1024 * 1024) {
+      alert("ไฟล์หรือประวัติไม่ถูกต้อง (รองรับ PDF ไม่เกิน 10 MB)");
+      return;
+    }
+    if (!window.confirm(
+      "โปรดยืนยันด้วยตนเองว่าไฟล์นี้เป็น PDF รวมต้นฉบับเดือนตุลาคม 2569 " +
+      "ครบ 38 คน ตรงกับสลิปที่เผยแพร่แล้ว การดำเนินการนี้จะเพิ่มเพียงไฟล์ต้นฉบับ " +
+      "ไม่แก้ไขสลิปรายบุคคล ดำเนินการหรือไม่?"
+    )) return;
+    const form = new FormData();
+    form.append("historyId", item.id);
+    form.append("confirmation", "ยืนยันไฟล์ต้นฉบับ ตุลาคม 2569 ครบ 38 คน");
+    form.append("file", pdf);
+    try {
+      setRecoveryBusy(true);
+      const response = await fetch("/api/admin/restore-original", {
+        method: "POST", body: form,
+      });
+      const result = await response.json();
+      if (!response.ok || result.success !== true)
+        throw new Error(result.error || "ไม่สามารถแนบต้นฉบับได้");
+      await fetchHistory();
+      alert("แนบ PDF รวมต้นฉบับในประวัติเดือนตุลาคมเรียบร้อยแล้ว");
+    } catch (error) {
+      alert(error instanceof Error ? error.message :
+        "แนบไฟล์ไม่สำเร็จ กรุณาตรวจสอบสถานะก่อนลองใหม่");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+
   const handleViewFile = (storagePath: string | null) => {
     if (!storagePath) { alert("ไม่มีไฟล์บันทึกไว้ในระบบ"); return; }
     window.open("/api/admin/storage?path=" + encodeURIComponent(storagePath), "_blank");
@@ -722,6 +756,17 @@ export default function AdminPage() {
                                 </div>
 
                                 <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end mt-2 sm:mt-0">
+                                  {item.month === "ตุลาคม" && item.year === "2569" && !item.storage_path && (
+                                    <label className="text-xs text-amber-800 border border-amber-300 bg-amber-50 rounded-lg px-2 py-1 cursor-pointer">
+                                      แนบ PDF ต้นฉบับ
+                                      <input type="file" accept=".pdf,application/pdf" className="hidden"
+                                        disabled={recoveryBusy} onChange={(e) => {
+                                          const pdf = e.target.files?.[0];
+                                          e.target.value = "";
+                                          if (pdf) void handleRestoreOriginal(item, pdf);
+                                        }} />
+                                    </label>
+                                  )}
                                   <button
                                     onClick={() => handleViewFile(item.storage_path)}
                                     disabled={!item.storage_path}
