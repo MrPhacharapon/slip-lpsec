@@ -1,15 +1,25 @@
 /** Test-only HTTP mock for server->Supabase requests. Never runs in the app. */
 import { createServer } from "node:http";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 let current = { rows: [], history: [] };
 let rateBuckets = new Map();
-export function setMockState(next) { current = next; rateBuckets = new Map(); }
+let storageObjects = new Map();
+export function setMockState(next) {
+  current = next;
+  rateBuckets = new Map();
+  storageObjects = new Map();
+}
+export function getMockStorage() { return storageObjects; }
 
 function filterRows(values, params) {
   let rows = values.slice();
   for (const [key, raw] of params.entries()) {
     if (["select", "order", "limit", "offset"].includes(key)) continue;
+    if (raw === "is.null") {
+      rows = rows.filter(row => row[key] === null || row[key] === undefined);
+      continue;
+    }
     if (!raw.startsWith("eq.")) continue;
     const expected = raw.slice(3);
     rows = rows.filter(row => String(row[key]) === expected);
@@ -38,6 +48,57 @@ function filterRows(values, params) {
 export async function startMockSupabase() {
   const server = createServer(async (req,res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (url.pathname === "/storage/v1/object/slips" ||
+        url.pathname.startsWith("/storage/v1/object/slips/")) {
+      const headers = { "Content-Type": "application/json; charset=utf-8" };
+      const chunks = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const rawBody = Buffer.concat(chunks);
+      try {
+        if (req.method === "POST" && url.pathname.startsWith("/storage/v1/object/slips/")) {
+          const objectPath = decodeURIComponent(
+            url.pathname.slice("/storage/v1/object/slips/".length)
+          );
+          if (req.headers["x-upsert"] !== "true" && storageObjects.has(objectPath)) {
+            res.writeHead(409, headers);
+            res.end(JSON.stringify({ statusCode: "409", error: "Duplicate", message: "Already exists" }));
+            return;
+          }
+          storageObjects.set(objectPath, rawBody);
+          res.writeHead(200, headers);
+          res.end(JSON.stringify({ Key: "slips/" + objectPath }));
+          return;
+        }
+        if (req.method === "GET" && url.pathname.startsWith("/storage/v1/object/slips/")) {
+          const objectPath = decodeURIComponent(
+            url.pathname.slice("/storage/v1/object/slips/".length)
+          );
+          const stored = storageObjects.get(objectPath);
+          if (!stored) {
+            res.writeHead(404, headers);
+            res.end(JSON.stringify({ statusCode: "404", error: "not_found" }));
+            return;
+          }
+          res.writeHead(200, { "Content-Type": "application/pdf" });
+          res.end(stored);
+          return;
+        }
+        if (req.method === "DELETE" && url.pathname === "/storage/v1/object/slips") {
+          const { prefixes } = JSON.parse(rawBody.toString("utf8"));
+          if (Array.isArray(prefixes)) {
+            for (const p of prefixes) storageObjects.delete(String(p));
+          }
+          res.writeHead(200, headers);
+          res.end("[]");
+          return;
+        }
+        res.writeHead(405, headers); res.end("{}");
+      } catch (error) {
+        res.writeHead(500, headers);
+        res.end(JSON.stringify({ error: String(error) }));
+      }
+      return;
+    }
     const table = url.pathname === "/rest/v1/slips" ? "rows" :
       url.pathname === "/rest/v1/upload_history" ? "history" : null;
     const isHistoryReorderRpc =
@@ -204,7 +265,7 @@ export async function startMockSupabase() {
             fail(400, "22023", "count mismatch"); return;
           }
           current.history.push({
-            id: String(current.history.length + 1),
+            id: randomUUID(),
             month, year, file_name: args.p_file_name, storage_path: null,
             created_at: new Date().toISOString(),
           });
@@ -241,14 +302,20 @@ export async function startMockSupabase() {
     }
     let code = 200, result = [];
     try {
-      if (req.method === "GET") {
+      if (req.method === "HEAD") {
+        const matched = filterRows(current[table], url.searchParams);
+        const range = matched.length ? `0-${matched.length - 1}/${matched.length}` : "*/0";
+        res.writeHead(200, { ...headers, "Content-Range": range });
+        res.end();
+        return;
+      } else if (req.method === "GET") {
         result = filterRows(current[table], url.searchParams);
       } else if (req.method === "POST") {
         const input = JSON.parse(payload);
         const rows = Array.isArray(input) ? input : [input];
         for (const row of rows) {
           if (table === "history") {
-            row.id = String(current.history.length + 1);
+            row.id = randomUUID();
             row.created_at = new Date().toISOString();
           }
           if (table === "rows") {
@@ -260,8 +327,19 @@ export async function startMockSupabase() {
         result = rows;
       } else if (req.method === "PATCH") {
         const patch = JSON.parse(payload);
+        const updated = [];
         for (const row of current[table]) {
-          if (filterRows([row],url.searchParams).length) Object.assign(row, patch);
+          if (filterRows([row], url.searchParams).length) {
+            Object.assign(row, patch);
+            updated.push(row);
+          }
+        }
+        const projection = url.searchParams.get("select");
+        if (projection && projection !== "*") {
+          const keys = projection.split(",");
+          result = updated.map(row => Object.fromEntries(keys.map(k => [k, row[k]])));
+        } else {
+          result = updated;
         }
       } else if (req.method === "DELETE") {
         current[table] = current[table].filter(row => !filterRows([row],url.searchParams).length);

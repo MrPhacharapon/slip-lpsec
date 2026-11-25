@@ -627,6 +627,101 @@ async function main() {
       } finally { await context.close(); }
     }
 
+    // Fresh monthly upload automatically attaches the combined original PDF to
+    // private Storage so the Eye preview button is immediately clickable.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const pdf = await printablePdf(browser, "A", [persons[0], persons[1]], false, "พฤศจิกายน");
+        const { page, messages, errors } = await submitOnAdmin(context, pdf, "พฤศจิกายน", null, false);
+        await awaitUploadSuccess(page, messages, errors);
+        assert.equal(state.history.length, 1);
+        assert.match(String(state.history[0].storage_path), /^original\/[0-9a-f-]+\.pdf$/i,
+          "fresh upload must store combined original PDF path");
+        const eyeButton = page.locator('button[title="ดูไฟล์ต้นฉบับ"]');
+        await eyeButton.waitFor();
+        assert.equal(await eyeButton.isDisabled(), false, "eye icon must be enabled after upload");
+        const fetched = await page.evaluate(async (path) => {
+          const r = await fetch("/api/admin/storage?path=" + encodeURIComponent(path));
+          const bytes = new Uint8Array(await r.arrayBuffer());
+          return {
+            status: r.status,
+            contentType: r.headers.get("content-type"),
+            prefix: String.fromCharCode(...bytes.slice(0, 5)),
+          };
+        }, state.history[0].storage_path);
+        assert.equal(fetched.status, 200);
+        assert.match(String(fetched.contentType), /application\/pdf/);
+        assert.equal(fetched.prefix, "%PDF-");
+        assert.deepEqual(errors, []);
+        await page.close();
+        console.log("PASS original PDF auto-attach: new upload enables admin Eye preview.");
+      } finally { await context.close(); }
+    }
+
+    // Existing published history with storage_path=null (e.g. พฤศจิกายน 2569)
+    // can attach its combined original PDF once, and refuses any overwrite.
+    {
+      const historyId = "55555555-5555-4555-8555-555555555555";
+      const state = {
+        rows: [{
+          id: "66666666-6666-4666-8666-666666666666",
+          name: persons[0].name,
+          bank_account: persons[0].account,
+          month: "พฤศจิกายน",
+          year: "2569",
+          pdf_base64: "JVBERi0xLjQK",
+        }],
+        history: [{
+          id: historyId,
+          month: "พฤศจิกายน",
+          year: "2569",
+          file_name: "nov-synthetic.pdf",
+          storage_path: null,
+          created_at: new Date().toISOString(),
+        }],
+      };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const page = await context.newPage();
+        const messages = [];
+        page.on("dialog", async dialog => {
+          messages.push(dialog.message());
+          await dialog.accept();
+        });
+        await page.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await page.getByText("สลิปเดือน พฤศจิกายน 2569").waitFor();
+        assert.equal(await page.locator('button[title="ไม่มีไฟล์ต้นฉบับบันทึกไว้"]').isDisabled(), true);
+        const restoreInput = page.locator('label:has-text("แนบ PDF ต้นฉบับ") input[type="file"]');
+        assert.equal(await restoreInput.count(), 1, "null-storage period shows manual original attach");
+
+        const pdf = await printablePdf(browser, "A", [persons[0]], false, "พฤศจิกายน");
+        await restoreInput.setInputFiles({
+          name: "nov-original.pdf", mimeType: "application/pdf", buffer: pdf,
+        });
+        await until(() => Boolean(state.history[0].storage_path),
+          "manual original PDF attachment updates storage_path");
+        await page.locator('button[title="ดูไฟล์ต้นฉบับ"]').waitFor();
+        assert.equal(await page.locator('button[title="ดูไฟล์ต้นฉบับ"]').isDisabled(), false);
+        assert.equal(await page.locator('label:has-text("แนบ PDF ต้นฉบับ")').count(), 0,
+          "attach button hides once original PDF is saved");
+
+        const overwriteStatus = await page.evaluate(async ({ id, pdfBase64 }) => {
+          const bytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
+          const form = new FormData();
+          form.append("historyId", id);
+          form.append("confirmation", "ยืนยันไฟล์ต้นฉบับ พฤศจิกายน 2569");
+          form.append("file", new File([bytes], "overwrite.pdf", { type: "application/pdf" }));
+          const r = await fetch("/api/admin/restore-original", { method: "POST", body: form });
+          return r.status;
+        }, { id: historyId, pdfBase64: pdf.toString("base64") });
+        assert.equal(overwriteStatus, 409, "existing storage_path must never be overwritten");
+        await page.close();
+        console.log("PASS original PDF manual attach: enables Eye preview and refuses overwrite.");
+      } finally { await context.close(); }
+    }
+
     // An HTTP 200 is not sufficient evidence that a batch was saved.
     // A proxy or buggy route must not cause premature publication.
     {

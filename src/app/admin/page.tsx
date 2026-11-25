@@ -284,6 +284,29 @@ function AdminPageContent() {
       const finalResult = await finished.json().catch(() => null);
       if (!finished.ok || finalResult?.success !== true)
         throw new Error("ไม่สามารถยืนยันการเผยแพร่ โปรดตรวจสอบสถานะข้อมูลก่อนดำเนินการต่อ");
+      // Publishing already committed on the server. Saving the combined original
+      // PDF is a post-publication attachment: a failure here must never undo
+      // publication or invite re-uploading slips.
+      if (file.size <= 10 * 1024 * 1024) {
+        try {
+          const originalForm = new FormData();
+          originalForm.append("month", selectedMonth);
+          originalForm.append("year", selectedYear);
+          originalForm.append("confirmation", `ยืนยันไฟล์ต้นฉบับ ${selectedMonth} ${selectedYear}`);
+          originalForm.append("file", file);
+          const stored = await fetch("/api/admin/restore-original", {
+            method: "POST", body: originalForm, cache: "no-store",
+          });
+          const storedResult = await stored.json().catch(() => null);
+          if (!stored.ok || storedResult?.success !== true) {
+            throw new Error(storedResult?.error || "original PDF upload not acknowledged");
+          }
+        } catch {
+          alert("เผยแพร่สลิปสำเร็จแล้ว แต่บันทึกไฟล์ PDF ต้นฉบับไม่สำเร็จ สามารถกดปุ่ม 'แนบ PDF ต้นฉบับ' ในประวัติภายหลังได้ ห้ามอัปโหลดซ้ำ");
+        }
+      } else {
+        alert("เผยแพร่สลิปสำเร็จแล้ว แต่ไฟล์ PDF ต้นฉบับมีขนาดเกิน 10 MB จึงไม่ได้บันทึกไฟล์รวมไว้ ห้ามอัปโหลดซ้ำ");
+      }
       // Publishing already committed on the server. A later history-read
       // failure must not be reported as an upload failure or suggest retrying.
       setUploadSuccess(true);
@@ -424,20 +447,20 @@ function AdminPageContent() {
   };
 
   const handleRestoreOriginal = async (item: HistoryItem, pdf: File) => {
-    if (item.month !== "ตุลาคม" || item.year !== "2569" || item.storage_path ||
+    if (item.storage_path ||
         !pdf.name.toLowerCase().endsWith(".pdf") ||
         pdf.type !== "application/pdf" || pdf.size > 10 * 1024 * 1024) {
       alert("ไฟล์หรือประวัติไม่ถูกต้อง (รองรับ PDF ไม่เกิน 10 MB)");
       return;
     }
     if (!window.confirm(
-      "โปรดยืนยันด้วยตนเองว่าไฟล์นี้เป็น PDF รวมต้นฉบับเดือนตุลาคม 2569 " +
-      "ครบ 38 คน ตรงกับสลิปที่เผยแพร่แล้ว การดำเนินการนี้จะเพิ่มเพียงไฟล์ต้นฉบับ " +
+      `โปรดยืนยันด้วยตนเองว่าไฟล์นี้เป็น PDF รวมต้นฉบับเดือน ${item.month} ${item.year} ` +
+      "ตรงกับสลิปที่เผยแพร่แล้ว การดำเนินการนี้จะเพิ่มเพียงไฟล์ต้นฉบับ " +
       "ไม่แก้ไขสลิปรายบุคคล ดำเนินการหรือไม่?"
     )) return;
     const form = new FormData();
     form.append("historyId", item.id);
-    form.append("confirmation", "ยืนยันไฟล์ต้นฉบับ ตุลาคม 2569 ครบ 38 คน");
+    form.append("confirmation", `ยืนยันไฟล์ต้นฉบับ ${item.month} ${item.year}`);
     form.append("file", pdf);
     try {
       setRecoveryBusy(true);
@@ -448,7 +471,7 @@ function AdminPageContent() {
       if (!response.ok || result.success !== true)
         throw new Error(result.error || "ไม่สามารถแนบต้นฉบับได้");
       await fetchHistory();
-      alert("แนบ PDF รวมต้นฉบับในประวัติเดือนตุลาคมเรียบร้อยแล้ว");
+      alert(`แนบ PDF รวมต้นฉบับในประวัติเดือน ${item.month} ${item.year} เรียบร้อยแล้ว`);
     } catch (error) {
       alert(error instanceof Error ? error.message :
         "แนบไฟล์ไม่สำเร็จ กรุณาตรวจสอบสถานะก่อนลองใหม่");
@@ -762,8 +785,8 @@ function AdminPageContent() {
                                 </div>
 
                                 <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto justify-end mt-2 sm:mt-0">
-                                  {item.month === "ตุลาคม" && item.year === "2569" && !item.storage_path && (
-                                    <label className="text-xs text-amber-800 border border-amber-300 bg-amber-50 rounded-lg px-2 py-1 cursor-pointer">
+                                  {!item.storage_path && (
+                                    <label className="text-xs text-amber-800 border border-amber-300 bg-amber-50 hover:bg-amber-100 rounded-lg px-2 py-1 cursor-pointer transition-colors">
                                       แนบ PDF ต้นฉบับ
                                       <input type="file" accept=".pdf,application/pdf" className="hidden"
                                         disabled={recoveryBusy} onChange={(e) => {
