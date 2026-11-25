@@ -613,7 +613,7 @@ async function main() {
         await page.goto(base + "/admin?dev=csv", { waitUntil: "domcontentloaded" });
         await page.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
         assert.equal(
-          await page.getByText("ตั้งค่าฐานข้อมูล").count(),
+          await page.getByRole("heading", { name: "ตั้งค่าฐานข้อมูล" }).count(),
           1,
           "/admin?dev=csv must show 'ตั้งค่าฐานข้อมูล' card"
         );
