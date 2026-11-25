@@ -12,9 +12,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
-    // Bundled PDF.js worker is a vendored, minified runtime asset.
-    // Lint the source integrations instead; do not rewrite the vendor bundle.
+    // Bundled PDF.js worker and WASM decoders are vendored, minified runtime assets.
+    // Lint the source integrations instead; do not rewrite the vendor bundles.
     "public/pdf.worker.min.mjs",
+    "public/pdfjs-wasm/**",
   ]),
 ]);
 
