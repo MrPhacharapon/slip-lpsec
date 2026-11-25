@@ -224,7 +224,8 @@ export async function startMockSupabase() {
       try {
         if (req.method !== "POST") { res.writeHead(405, headers); res.end("{}"); return; }
         const { p_key_hash, p_window_seconds, p_max_requests } = JSON.parse(payload);
-        if (!/^[a-f0-9]{64}$/.test(p_key_hash) || p_window_seconds !== 600 ||
+        if (!/^[a-f0-9]{64}$/.test(p_key_hash) ||
+            !Number.isInteger(p_window_seconds) || p_window_seconds < 60 || p_window_seconds > 3600 ||
             !Number.isInteger(p_max_requests) || p_max_requests < 1) {
           res.writeHead(400, headers); res.end("false"); return;
         }

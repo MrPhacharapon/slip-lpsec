@@ -48,14 +48,15 @@ export async function requirePayrollRateLimit(
   // but could be used for denial of service; this is not MFA.
   const shortPin = scope === "admin_login" &&
     process.env.PAYROLL_RELEASE_TARGET === "production";
-  const limits = shortPin ? { perIp: 3 } : POLICY[scope];
+  const windowSeconds = shortPin ? 180 : WINDOW_SECONDS;
+  const limits = shortPin ? { perIp: 5 } : POLICY[scope];
   try {
     const counters = [
       { key: fingerprint(scope, "ip", requesterAddress(request)), max: limits.perIp },
     ];
     if (shortPin) {
       counters.push({ key: fingerprint(scope, "global", "legacy-admin-pin"),
-        max: 10 });
+        max: 20 });
     }
     if (limits.perAccount && account) {
       counters.push({ key: fingerprint(scope, "account", account), max: limits.perAccount });
@@ -65,14 +66,14 @@ export async function requirePayrollRateLimit(
     // still uses a request count. Nothing is fail-open.
     const result = await Promise.all(counters.map(({ key, max }) =>
       db.rpc("check_payroll_rate_limit", {
-        p_key_hash: key, p_window_seconds: WINDOW_SECONDS, p_max_requests: max,
+        p_key_hash: key, p_window_seconds: windowSeconds, p_max_requests: max,
       })));
     if (result.some(x => x.error || typeof x.data !== "boolean")) {
       return reply({ error: "ไม่สามารถตรวจสอบขีดจำกัดคำขอได้ กรุณาลองใหม่ภายหลัง" }, 503);
     }
     if (result.some(x => x.data === false)) {
       const response = reply({ error: "มีการค้นหาหลายครั้งเกินกำหนด กรุณาลองใหม่ภายหลัง" }, 429);
-      response.headers.set("Retry-After", String(WINDOW_SECONDS));
+      response.headers.set("Retry-After", String(windowSeconds));
       return response;
     }
     return null;

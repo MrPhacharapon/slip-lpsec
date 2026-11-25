@@ -60,6 +60,8 @@ test("Production Admin PIN uses private service account and strict fail-closed q
   assert.match(sheets, /loadPrivateSheetPayload\("admin_pin"\)/);
   assert.doesNotMatch(sheets, /\/export\?format=csv/);
   assert.match(pin, /timingSafeEqual/);
-  assert.match(limit, /shortPin \? \{ perIp: 3 \}/);
-  assert.match(limit, /max: 10/);
+  assert.match(limit, /shortPin \? \{ perIp: 5 \}/);
+  assert.match(limit, /max: 20/);
+  assert.match(limit, /shortPin \? 180 : WINDOW_SECONDS/);
+  assert.match(limit, /response\.headers\.set\("Retry-After", String\(windowSeconds\)\)/);
 });

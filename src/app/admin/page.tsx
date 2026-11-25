@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { UploadCloud, Settings, FileText, CheckCircle2, History, Trash2, GripVertical, Eye } from "lucide-react";
 import { PDFDocument } from 'pdf-lib';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -36,9 +36,11 @@ type HistoryItem = {
   created_at: string;
 };
 
-export default function AdminPage() {
+function AdminPageContent() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const showDevCsv = searchParams?.get("dev") === "csv";
 
   const [selectedMonth, setSelectedMonth] = useState("มกราคม");
   const [selectedYear, setSelectedYear] = useState("2569");
@@ -481,7 +483,9 @@ export default function AdminPage() {
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 glass-panel p-6 bg-white/70">
           <div>
             <h1 className="text-2xl font-bold text-slate-800">ระบบจัดการสลิปเงินเดือน</h1>
-            <p className="text-slate-500 text-sm mt-1">อัปโหลดไฟล์ PDF รวม และตั้งค่าฐานข้อมูล</p>
+            <p className="text-slate-500 text-sm mt-1">
+              {showDevCsv ? "อัปโหลดไฟล์ PDF รวม และตั้งค่าฐานข้อมูล" : "อัปโหลดไฟล์ PDF รวม"}
+            </p>
           </div>
           <button 
             onClick={handleLogout}
@@ -495,30 +499,32 @@ export default function AdminPage() {
           
           {/* Left Column: Settings & Upload */}
           <div className="lg:col-span-5 space-y-8">
-            <div className="glass-panel p-6 bg-white/70">
-              <div className="flex items-center gap-2 mb-4 text-slate-800">
-                <Settings className="w-5 h-5 text-emerald-500" />
-                <h2 className="font-semibold">ตั้งค่าฐานข้อมูล</h2>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-2">ทะเบียนบุคลากร</label>
-                  <p className="text-sm text-slate-700 mb-2">
-                    ใช้ทะเบียนที่กำหนดไว้ในระบบ หรือเลือกไฟล์ CSV จากเครื่องเฉพาะการอัปโหลดครั้งนี้
-                  </p>
-                  <input
-                    type="file"
-                    accept=".csv,text/csv"
-                    aria-label="ไฟล์ CSV ทะเบียนบุคลากร (ไม่บังคับ)"
-                    className="glass-input w-full text-sm bg-white"
-                    onChange={(e) => setRosterCsvFile(e.target.files?.[0] ?? null)}
-                  />
+            {showDevCsv && (
+              <div className="glass-panel p-6 bg-white/70">
+                <div className="flex items-center gap-2 mb-4 text-slate-800">
+                  <Settings className="w-5 h-5 text-emerald-500" />
+                  <h2 className="font-semibold">ตั้งค่าฐานข้อมูล</h2>
                 </div>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  หากเลือก CSV ระบบจะอ่านเฉพาะในเบราว์เซอร์ของผู้ดูแลและไม่ส่งทะเบียนขึ้นเซิร์ฟเวอร์ หากไม่เลือกจะอ่านทะเบียนผ่าน API สำหรับ Admin
-                </p>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-2">ทะเบียนบุคลากร</label>
+                    <p className="text-sm text-slate-700 mb-2">
+                      ใช้ทะเบียนที่กำหนดไว้ในระบบ หรือเลือกไฟล์ CSV จากเครื่องเฉพาะการอัปโหลดครั้งนี้
+                    </p>
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      aria-label="ไฟล์ CSV ทะเบียนบุคลากร (ไม่บังคับ)"
+                      className="glass-input w-full text-sm bg-white"
+                      onChange={(e) => setRosterCsvFile(e.target.files?.[0] ?? null)}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    หากเลือก CSV ระบบจะอ่านเฉพาะในเบราว์เซอร์ของผู้ดูแลและไม่ส่งทะเบียนขึ้นเซิร์ฟเวอร์ หากไม่เลือกจะอ่านทะเบียนผ่าน API สำหรับ Admin
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
 
             <div className="glass-panel p-6 bg-white/70">
               <div className="flex items-center gap-2 mb-6 text-slate-800">
@@ -799,5 +805,13 @@ export default function AdminPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function AdminPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminPageContent />
+    </Suspense>
   );
 }
