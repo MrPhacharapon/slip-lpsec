@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { chromium } from "playwright";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, PDFName, PDFDict, PDFRawStream, PDFArray, PDFNumber } from "pdf-lib";
 import { spawn, execFileSync } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
 import { startMockSupabase, setMockState } from "./mock-supabase-server.mjs";
@@ -627,18 +627,83 @@ async function main() {
       } finally { await context.close(); }
     }
 
-    // Fresh monthly upload automatically attaches the combined original PDF to
-    // private Storage so the Eye preview button is immediately clickable.
+    // Fresh monthly upload automatically attaches the combined original PDF via
+    // signed Storage URL (supporting > 4.5 MB files) AND renders embedded
+    // JPEG 2000 (/JPXDecode) signature images using bundled openjpeg.wasm.
     {
       const state = { rows: [], history: [] };
       const context = await makeSandboxContext(browser, state);
       try {
-        const pdf = await printablePdf(browser, "A", [persons[0], persons[1]], false, "พฤศจิกายน");
+        const basePdf = await printablePdf(browser, "A", [persons[0], persons[1]], false, "พฤศจิกายน");
+        // Embed a 100% synthetic royal-blue JPEG 2000 (/JPXDecode) stamp on page 1
+        // to mirror Foxit PDF Editor's signature XObject encoding.
+        const jp2Bytes = execFileSync("python3", ["-c",
+          "import io, sys; from PIL import Image; " +
+          "b = io.BytesIO(); Image.new('RGB', (120, 60), (0, 60, 220)).save(b, format='JPEG2000'); " +
+          "sys.stdout.buffer.write(b.getvalue())",
+        ]);
+        const docWithJpx = await PDFDocument.load(basePdf);
+        const page0 = docWithJpx.getPage(0);
+        const jpxDict = docWithJpx.context.obj({
+          Type: PDFName.of("XObject"),
+          Subtype: PDFName.of("Image"),
+          Width: PDFNumber.of(120),
+          Height: PDFNumber.of(60),
+          ColorSpace: PDFName.of("DeviceRGB"),
+          BitsPerComponent: PDFNumber.of(8),
+          Filter: PDFName.of("JPXDecode"),
+          Length: PDFNumber.of(jp2Bytes.length),
+        });
+        const jpxRef = docWithJpx.context.register(PDFRawStream.of(jpxDict, new Uint8Array(jp2Bytes)));
+        let res = page0.node.lookup(PDFName.of("Resources"));
+        if (!(res instanceof PDFDict)) {
+          res = docWithJpx.context.obj({});
+          page0.node.set(PDFName.of("Resources"), res);
+        }
+        let xobjs = res.lookup(PDFName.of("XObject"));
+        if (!(xobjs instanceof PDFDict)) {
+          xobjs = docWithJpx.context.obj({});
+          res.set(PDFName.of("XObject"), xobjs);
+        }
+        xobjs.set(PDFName.of("JpxSig"), jpxRef);
+        const drawBytes = new TextEncoder().encode("\nq 140 0 0 70 620 50 cm /JpxSig Do Q\n");
+        const drawStreamRef = docWithJpx.context.register(
+          PDFRawStream.of(docWithJpx.context.obj({ Length: PDFNumber.of(drawBytes.length) }), drawBytes)
+        );
+        const existingContents = page0.node.get(PDFName.of("Contents"));
+        const contentsArray = existingContents instanceof PDFArray
+          ? existingContents
+          : docWithJpx.context.obj(existingContents ? [existingContents] : []);
+        contentsArray.push(drawStreamRef);
+        page0.node.set(PDFName.of("Contents"), contentsArray);
+        const pdf = Buffer.from(await docWithJpx.save());
+
         const { page, messages, errors } = await submitOnAdmin(context, pdf, "พฤศจิกายน", null, false);
         await awaitUploadSuccess(page, messages, errors);
         assert.equal(state.history.length, 1);
         assert.match(String(state.history[0].storage_path), /^original\/[0-9a-f-]+\.pdf$/i,
-          "fresh upload must store combined original PDF path");
+          "fresh upload must store combined original PDF path via signed URL");
+
+        // Verify the rendered raster slip actually contains the decoded JPEG 2000 blue signature!
+        const slipPdfDoc = await PDFDocument.load(Buffer.from(state.rows[0].pdf_base64, "base64"));
+        const slipRes = slipPdfDoc.getPage(0).node.lookup(PDFName.of("Resources"));
+        const slipXObjs = slipRes instanceof PDFDict ? slipRes.lookup(PDFName.of("XObject")) : null;
+        let slipJpegBytes = null;
+        if (slipXObjs instanceof PDFDict) {
+          for (const [, ref] of slipXObjs.entries()) {
+            const obj = slipPdfDoc.context.lookup(ref);
+            if (obj instanceof PDFRawStream) { slipJpegBytes = Buffer.from(obj.contents); break; }
+          }
+        }
+        assert.ok(slipJpegBytes && slipJpegBytes.length > 500, "rendered individual slip must embed raster JPEG");
+        const bluePixels = Number(execFileSync("python3", ["-c",
+          "import io, sys; from PIL import Image; " +
+          "im = Image.open(io.BytesIO(sys.stdin.buffer.read())).convert('RGB'); " +
+          "print(sum(1 for r, g, b in im.getdata() if b > 170 and r < 90))",
+        ], { input: slipJpegBytes }).toString().trim());
+        assert.ok(bluePixels > 5000,
+          `JPEG 2000 signature pixels must render on slip via openjpeg.wasm (got ${bluePixels})`);
+
         const eyeButton = page.locator('button[title="ดูไฟล์ต้นฉบับ"]');
         await eyeButton.waitFor();
         assert.equal(await eyeButton.isDisabled(), false, "eye icon must be enabled after upload");
@@ -656,7 +721,7 @@ async function main() {
         assert.equal(fetched.prefix, "%PDF-");
         assert.deepEqual(errors, []);
         await page.close();
-        console.log("PASS original PDF auto-attach: new upload enables admin Eye preview.");
+        console.log(`PASS original PDF auto-attach + JPXDecode signature render (${bluePixels} blue pixels).`);
       } finally { await context.close(); }
     }
 
@@ -707,18 +772,33 @@ async function main() {
         assert.equal(await page.locator('label:has-text("แนบ PDF ต้นฉบับ")').count(), 0,
           "attach button hides once original PDF is saved");
 
-        const overwriteStatus = await page.evaluate(async ({ id, pdfBase64 }) => {
-          const bytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
-          const form = new FormData();
-          form.append("historyId", id);
-          form.append("confirmation", "ยืนยันไฟล์ต้นฉบับ พฤศจิกายน 2569");
-          form.append("file", new File([bytes], "overwrite.pdf", { type: "application/pdf" }));
-          const r = await fetch("/api/admin/restore-original", { method: "POST", body: form });
-          return r.status;
-        }, { id: historyId, pdfBase64: pdf.toString("base64") });
-        assert.equal(overwriteStatus, 409, "existing storage_path must never be overwritten");
+        const overwriteCheck = await page.evaluate(async ({ id, existingPath, size }) => {
+          const prep = await fetch("/api/admin/restore-original", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              historyId: id, month: "พฤศจิกายน", year: "2569",
+              fileName: "overwrite.pdf", fileSize: size,
+              confirmation: "ยืนยันไฟล์ต้นฉบับ พฤศจิกายน 2569",
+            }),
+          });
+          const patch = await fetch("/api/admin/restore-original", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              historyId: id, month: "พฤศจิกายน", year: "2569",
+              path: existingPath,
+              confirmation: "ยืนยันไฟล์ต้นฉบับ พฤศจิกายน 2569",
+            }),
+          });
+          const stillThere = await fetch("/api/admin/storage?path=" + encodeURIComponent(existingPath));
+          return { prep: prep.status, patch: patch.status, stillThere: stillThere.status };
+        }, { id: historyId, existingPath: state.history[0].storage_path, size: pdf.length });
+        assert.equal(overwriteCheck.prep, 409, "existing storage_path must refuse new signed URL");
+        assert.equal(overwriteCheck.patch, 409, "existing storage_path must refuse PATCH overwrite");
+        assert.equal(overwriteCheck.stillThere, 200, "failed PATCH must never delete referenced original PDF");
         await page.close();
-        console.log("PASS original PDF manual attach: enables Eye preview and refuses overwrite.");
+        console.log("PASS original PDF manual attach: signed upload enables Eye preview and refuses overwrite.");
       } finally { await context.close(); }
     }
 

@@ -133,7 +133,10 @@ function AdminPageContent() {
       ensurePdfJsMapCompatibility();
       const pdfjs = await import("pdfjs-dist");
       pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.compat.mjs";
-      const doc = await pdfjs.getDocument({ data: buffer.slice(0) }).promise;
+      const doc = await pdfjs.getDocument({
+        data: buffer.slice(0),
+        wasmUrl: new URL("/pdfjs-wasm/", window.location.origin).href,
+      }).promise;
       if (!doc.numPages || doc.numPages > 500) throw new Error("จำนวนหน้า PDF ไม่ถูกต้องหรือมากเกินกำหนด");
 
       // Read-only preflight: never delete old payroll records to replace a month.
@@ -285,27 +288,17 @@ function AdminPageContent() {
       if (!finished.ok || finalResult?.success !== true)
         throw new Error("ไม่สามารถยืนยันการเผยแพร่ โปรดตรวจสอบสถานะข้อมูลก่อนดำเนินการต่อ");
       // Publishing already committed on the server. Saving the combined original
-      // PDF is a post-publication attachment: a failure here must never undo
-      // publication or invite re-uploading slips.
-      if (file.size <= 10 * 1024 * 1024) {
+      // PDF uses a signed Storage URL (supporting up to 20 MB beyond Vercel's
+      // 4.5 MB function limit) as a post-publication attachment: a failure here
+      // must never undo publication or invite re-uploading slips.
+      if (file.size <= 20 * 1024 * 1024) {
         try {
-          const originalForm = new FormData();
-          originalForm.append("month", selectedMonth);
-          originalForm.append("year", selectedYear);
-          originalForm.append("confirmation", `ยืนยันไฟล์ต้นฉบับ ${selectedMonth} ${selectedYear}`);
-          originalForm.append("file", file);
-          const stored = await fetch("/api/admin/restore-original", {
-            method: "POST", body: originalForm, cache: "no-store",
-          });
-          const storedResult = await stored.json().catch(() => null);
-          if (!stored.ok || storedResult?.success !== true) {
-            throw new Error(storedResult?.error || "original PDF upload not acknowledged");
-          }
+          await attachOriginalPdf({ month: selectedMonth, year: selectedYear }, file);
         } catch {
           alert("เผยแพร่สลิปสำเร็จแล้ว แต่บันทึกไฟล์ PDF ต้นฉบับไม่สำเร็จ สามารถกดปุ่ม 'แนบ PDF ต้นฉบับ' ในประวัติภายหลังได้ ห้ามอัปโหลดซ้ำ");
         }
       } else {
-        alert("เผยแพร่สลิปสำเร็จแล้ว แต่ไฟล์ PDF ต้นฉบับมีขนาดเกิน 10 MB จึงไม่ได้บันทึกไฟล์รวมไว้ ห้ามอัปโหลดซ้ำ");
+        alert("เผยแพร่สลิปสำเร็จแล้ว แต่ไฟล์ PDF ต้นฉบับมีขนาดเกิน 20 MB จึงไม่ได้บันทึกไฟล์รวมไว้ ห้ามอัปโหลดซ้ำ");
       }
       // Publishing already committed on the server. A later history-read
       // failure must not be reported as an upload failure or suggest retrying.
@@ -446,11 +439,67 @@ function AdminPageContent() {
     }
   };
 
+  const attachOriginalPdf = async (
+    target: { historyId?: string; month: string; year: string },
+    pdf: File,
+  ) => {
+    const confirmation = `ยืนยันไฟล์ต้นฉบับ ${target.month} ${target.year}`;
+    const prepared = await fetch("/api/admin/restore-original", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        historyId: target.historyId,
+        month: target.month,
+        year: target.year,
+        fileName: pdf.name,
+        fileSize: pdf.size,
+        confirmation,
+      }),
+      cache: "no-store",
+    });
+    const prepResult = await prepared.json().catch(() => null) as {
+      success?: boolean; historyId?: string; month?: string; year?: string;
+      path?: string; signedUrl?: string; error?: string;
+    } | null;
+    if (!prepared.ok || prepResult?.success !== true || !prepResult.signedUrl ||
+        !prepResult.path || !prepResult.historyId) {
+      throw new Error(prepResult?.error || "ไม่สามารถเตรียมการอัปโหลดไฟล์ต้นฉบับได้");
+    }
+
+    const uploaded = await fetch(prepResult.signedUrl, {
+      method: "PUT",
+      headers: { "Content-Type": "application/pdf", "x-upsert": "false" },
+      body: pdf,
+    });
+    if (!uploaded.ok) {
+      throw new Error("อัปโหลดไฟล์ต้นฉบับไปยัง Storage ไม่สำเร็จ");
+    }
+
+    const committed = await fetch("/api/admin/restore-original", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        historyId: prepResult.historyId,
+        month: prepResult.month ?? target.month,
+        year: prepResult.year ?? target.year,
+        path: prepResult.path,
+        confirmation,
+      }),
+      cache: "no-store",
+    });
+    const commitResult = await committed.json().catch(() => null) as {
+      success?: boolean; error?: string;
+    } | null;
+    if (!committed.ok || commitResult?.success !== true) {
+      throw new Error(commitResult?.error || "ไม่สามารถยืนยันไฟล์ต้นฉบับได้");
+    }
+  };
+
   const handleRestoreOriginal = async (item: HistoryItem, pdf: File) => {
     if (item.storage_path ||
         !pdf.name.toLowerCase().endsWith(".pdf") ||
-        pdf.type !== "application/pdf" || pdf.size > 10 * 1024 * 1024) {
-      alert("ไฟล์หรือประวัติไม่ถูกต้อง (รองรับ PDF ไม่เกิน 10 MB)");
+        pdf.type !== "application/pdf" || pdf.size > 20 * 1024 * 1024) {
+      alert("ไฟล์หรือประวัติไม่ถูกต้อง (รองรับ PDF ไม่เกิน 20 MB)");
       return;
     }
     if (!window.confirm(
@@ -458,18 +507,9 @@ function AdminPageContent() {
       "ตรงกับสลิปที่เผยแพร่แล้ว การดำเนินการนี้จะเพิ่มเพียงไฟล์ต้นฉบับ " +
       "ไม่แก้ไขสลิปรายบุคคล ดำเนินการหรือไม่?"
     )) return;
-    const form = new FormData();
-    form.append("historyId", item.id);
-    form.append("confirmation", `ยืนยันไฟล์ต้นฉบับ ${item.month} ${item.year}`);
-    form.append("file", pdf);
     try {
       setRecoveryBusy(true);
-      const response = await fetch("/api/admin/restore-original", {
-        method: "POST", body: form,
-      });
-      const result = await response.json();
-      if (!response.ok || result.success !== true)
-        throw new Error(result.error || "ไม่สามารถแนบต้นฉบับได้");
+      await attachOriginalPdf({ historyId: item.id, month: item.month, year: item.year }, pdf);
       await fetchHistory();
       alert(`แนบ PDF รวมต้นฉบับในประวัติเดือน ${item.month} ${item.year} เรียบร้อยแล้ว`);
     } catch (error) {

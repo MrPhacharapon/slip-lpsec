@@ -5,10 +5,12 @@ import { createHash, randomUUID } from "node:crypto";
 let current = { rows: [], history: [] };
 let rateBuckets = new Map();
 let storageObjects = new Map();
+let signedUploadTokens = new Map();
 export function setMockState(next) {
   current = next;
   rateBuckets = new Map();
   storageObjects = new Map();
+  signedUploadTokens = new Map();
 }
 export function getMockStorage() { return storageObjects; }
 
@@ -48,6 +50,54 @@ function filterRows(values, params) {
 export async function startMockSupabase() {
   const server = createServer(async (req,res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
+    if (url.pathname.startsWith("/storage/v1/object/upload/sign/slips/")) {
+      const corsHeaders = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "PUT, POST, GET, DELETE, OPTIONS",
+        "Access-Control-Allow-Headers": "content-type, x-upsert, authorization, apikey",
+      };
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, corsHeaders);
+        res.end();
+        return;
+      }
+      const chunks = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const rawBody = Buffer.concat(chunks);
+      const objectPath = decodeURIComponent(
+        url.pathname.slice("/storage/v1/object/upload/sign/slips/".length)
+      );
+      if (req.method === "POST") {
+        const token = randomUUID();
+        signedUploadTokens.set(objectPath, token);
+        res.writeHead(200, corsHeaders);
+        res.end(JSON.stringify({
+          url: `/object/upload/sign/slips/${objectPath}?token=${token}`,
+        }));
+        return;
+      }
+      if (req.method === "PUT") {
+        const token = url.searchParams.get("token");
+        if (!token || signedUploadTokens.get(objectPath) !== token) {
+          res.writeHead(403, corsHeaders);
+          res.end(JSON.stringify({ statusCode: "403", error: "Invalid token" }));
+          return;
+        }
+        if (req.headers["x-upsert"] !== "true" && storageObjects.has(objectPath)) {
+          res.writeHead(409, corsHeaders);
+          res.end(JSON.stringify({ statusCode: "409", error: "Duplicate" }));
+          return;
+        }
+        storageObjects.set(objectPath, rawBody);
+        signedUploadTokens.delete(objectPath);
+        res.writeHead(200, corsHeaders);
+        res.end(JSON.stringify({ Key: "slips/" + objectPath }));
+        return;
+      }
+      res.writeHead(405, corsHeaders); res.end("{}");
+      return;
+    }
     if (url.pathname === "/storage/v1/object/slips" ||
         url.pathname.startsWith("/storage/v1/object/slips/")) {
       const headers = { "Content-Type": "application/json; charset=utf-8" };
