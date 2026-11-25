@@ -126,7 +126,8 @@ async function submitOnAdmin(context, pdf, month = "กันยายน", loca
   });
   const errors = [];
   page.on("pageerror", err => errors.push(String(err)));
-  await page.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+  const adminUrl = localRosterCsv !== null ? base + "/admin?dev=csv" : base + "/admin";
+  await page.goto(adminUrl, { waitUntil: "domcontentloaded" });
   await page.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
   await page.locator("form select").first().selectOption(month);
   await page.locator("#pdf-upload").setInputFiles({
@@ -588,6 +589,42 @@ async function main() {
         assert.equal(excess.status(), 429, "repeated invalid login attempts are throttled");
         console.log("PASS admin password rate limiting: 429 after per-IP quota.");
       } finally { await visitor.close(); }
+    }
+
+    // Default /admin hides "ตั้งค่าฐานข้อมูล" card; /admin?dev=csv reveals it.
+    {
+      const state = { rows: [], history: [] };
+      const context = await makeSandboxContext(browser, state);
+      try {
+        const page = await context.newPage();
+        await page.goto(base + "/admin", { waitUntil: "domcontentloaded" });
+        await page.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
+        assert.equal(
+          await page.getByText("ตั้งค่าฐานข้อมูล").count(),
+          0,
+          "default /admin must not show 'ตั้งค่าฐานข้อมูล' card"
+        );
+        assert.equal(
+          await page.getByLabel("ไฟล์ CSV ทะเบียนบุคลากร (ไม่บังคับ)").count(),
+          0,
+          "default /admin must not show CSV file input"
+        );
+
+        await page.goto(base + "/admin?dev=csv", { waitUntil: "domcontentloaded" });
+        await page.getByText("ระบบจัดการสลิปเงินเดือน").waitFor();
+        assert.equal(
+          await page.getByRole("heading", { name: "ตั้งค่าฐานข้อมูล" }).count(),
+          1,
+          "/admin?dev=csv must show 'ตั้งค่าฐานข้อมูล' card"
+        );
+        assert.equal(
+          await page.getByLabel("ไฟล์ CSV ทะเบียนบุคลากร (ไม่บังคับ)").count(),
+          1,
+          "/admin?dev=csv must show CSV file input"
+        );
+        await page.close();
+        console.log("PASS admin UI: default /admin hides database settings, /admin?dev=csv reveals it.");
+      } finally { await context.close(); }
     }
 
     // An HTTP 200 is not sufficient evidence that a batch was saved.
